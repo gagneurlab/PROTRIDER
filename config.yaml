@@ -17,7 +17,7 @@ inj_sd: 1.6
 seed: 
 
 ## Model params
-autoencoder_training: False ## when set to false, it returns values after (PCA) initialization without training
+autoencoder_training: True ## when set to false, it returns values after (PCA) initialization without training
 n_layers: 1
 n_epochs: 100
 lr: 1e-5
