@@ -1,0 +1,32 @@
+out_dir: 
+index_col: "geneID"
+
+## Preprocessing params
+max_allowed_NAs_per_protein: 0.3
+log_func_name: "log"
+cov_used:
+    - "gender"
+    - "PROTEOMICS_BATCH"
+    #- "BATCH_RUN"
+    #- "INSTRUMENT"
+
+## Grid search outlier injection params
+inj_freq: 1e-3
+inj_mean: 3
+inj_sd: 1.6
+seed: 
+
+## Model params
+autoencoder_training: False ## when set to false, it returns values after (PCA) initialization without training
+n_layers: 1
+n_epochs: 100
+lr: 1e-5
+batch_size: 
+find_q_method: "gs" # OHT, gs
+init_pca: True
+h_dim: # only for n_layers>1
+
+## Stat params
+pval_dist: 'gaussian' # gaussian, t
+pval_adj: 'by' # by, bh
+pval_sided: 'two-sided'

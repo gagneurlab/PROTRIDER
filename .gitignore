@@ -1,0 +1,5 @@
+outrider-prot/.ipynb_checkpoints/*
+outrider-prot/__pycache__/*
+*egg-info/*
+__pycache__/*
+.ipynb_checkpoints/*

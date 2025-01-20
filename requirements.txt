@@ -1,0 +1,11 @@
+click
+numpy
+pandas
+yaml
+pathlib
+torch
+tqdm
+optht
+pydeseq2
+scipy
+scikit-learn
