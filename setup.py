@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-        name='outrider-prot',
+        name='outrider_prot',
         version='1.0',
         author="Ines Scheller, Daniela Klaproth-Andrade",
         author_email = "daniela.andrade@tum.de",
@@ -22,15 +22,15 @@ setup(
                             'scipy',
                             'scikit-learn'
                             ],
-        url='https://github.com/gagneurlab/outrider-prot',
+        url='https://github.com/gagneurlab/outrider_prot',
         license='',
-        packages=find_packages(include=['outrider-prot', 'outrider-prot.*']),
+        packages=find_packages(include=['outrider_prot', 'outrider_prot.*']),
         zip_safe=False,
         entry_points={
             'console_scripts': [
-                'outrider-prot = outrider-prot.main:main',
+                'outrider_prot = outrider_prot.main:main',
             ],
         },
     include_package_data=True,
-    #package_data={'outrider-prot': ['data/*.csv']},
+    #package_data={'outrider_prot': ['data/*.csv']},
 )
