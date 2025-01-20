@@ -28,5 +28,9 @@ To install OUTRIDER-prot run the following command inside the root directory:
 pip install .
 ```
 
+## Usage
 
-pip install .
+```
+protrider --config {config_path} --input_intensities {intensities_csv} --sample_annotation {sample_anno}
+```
+
