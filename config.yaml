@@ -5,8 +5,8 @@ index_col: "geneID"
 max_allowed_NAs_per_protein: 0.3
 log_func_name: "log"
 cov_used:
-    - "gender"
-    - "PROTEOMICS_BATCH"
+    #- "gender"
+    #- "PROTEOMICS_BATCH"
     #- "BATCH_RUN"
     #- "INSTRUMENT"
 
@@ -22,11 +22,11 @@ n_layers: 1
 n_epochs: 100
 lr: 1e-5
 batch_size: 
-find_q_method: "gs" # OHT, gs
+find_q_method: "OHT" # OHT, gs
 init_pca: True
 h_dim: # only for n_layers>1
 
 ## Stat params
-pval_dist: 'gaussian' # gaussian, t
+pval_dist: 't' # gaussian, t
 pval_adj: 'by' # by, bh
 pval_sided: 'two-sided'
