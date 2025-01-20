@@ -49,7 +49,7 @@ def _find_latent_dim(dataset, method='OHT',
                 X_in[injected_dataset.mask] = np.nan
                 pvals, _, _ = get_pvals(X_in - X_out, 
                                      how=pval_sided, 
-                                     dis=pval_dist,
+                                     dis='gaussian',
                                      padjust=None
                                     )
                 auprc = _get_prec_recall(pvals, outlier_mask)
