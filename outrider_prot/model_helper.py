@@ -19,7 +19,7 @@ def _find_latent_dim(dataset, method='OHT',
         dataset._perform_svd()
         q = dataset._find_enc_dim_optht()
     else:
-        #return 43
+        #return 7
         print('--- Grid search method for finding latent dim ---')
         print('--- Injecting outliers ---')
         injected_dataset, outlier_mask = _inject_outliers(dataset, inj_freq, inj_mean, inj_sd, seed)     

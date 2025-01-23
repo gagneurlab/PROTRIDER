@@ -10,7 +10,7 @@ class ConditionalEnDecoder(nn.Module):
         if n_layers==1:
             self.model = nn.Linear(in_dim, out_dim, bias=True)
             
-        elif n_layers>1 and h_dim is not None:
+        elif n_layers>1:
             modules = []
             modules.append( nn.Linear(in_dim, h_dim, bias=True) )
             for _ in range(1, n_layers-1):

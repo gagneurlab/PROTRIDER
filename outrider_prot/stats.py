@@ -126,7 +126,7 @@ def get_pv_t(res, how='two-sided', MAX_DF=100000):
         x = res[:, j]
         pv, df, _ = get_pv_t_base(x, how=how)  # Call the previously defined function
         pv_t[:, j] = pv  # Store p-values (optional, can omit this step in final code)
-        dfs[j] = df if df<=MAX_DF else np.nan
+        dfs[j] = df if df<=MAX_DF else 10#np.nan
     
 
     # Report the number of non-converged fits
