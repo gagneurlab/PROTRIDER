@@ -15,7 +15,7 @@ Using pip and conda environments
 We recommend to install and run Spectralis on a dedicated conda environment. To create and activate the conda environment run the following commands:
 
 ```
-conda create --name outrider_prot_env python=3.7
+conda create --name outrider_prot_env python=3.8
 conda activate outrider_prot_env
 ```
 
