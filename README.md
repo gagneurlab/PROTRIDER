@@ -1,6 +1,6 @@
 # OUTRIDER-prot
 
-OUTRIDER-prot is a autoencoder-based method to call protein outliers from mass spectrometry-based proteomics datasets.
+OUTRIDER-prot is an autoencoder-based method to call protein outliers from mass spectrometry-based proteomics datasets.
 
 For more information see:
 
@@ -11,7 +11,7 @@ For more information see:
 OUTRIDER-prot was trained and tested using Python 3.8 on a Linux system. The list of required packages for running OUTRIDER-prot can be found in the file requirements.txt.
 
 Using pip and conda environments
-We recommend to install and run Spectralis on a dedicated conda environment. To create and activate the conda environment run the following commands:
+We recommend installing and running OUTRIDER-prot on a dedicated conda environment. To create and activate the conda environment run the following commands:
 
 ```
 conda create --name outrider_prot_env python=3.8
@@ -46,7 +46,7 @@ An example dataset can be found in this repository.
 
 To run OUTRIDER-prot, a configuration file needs to be provided. This can be adapted from the configuration file provided in this code repo (`config.yaml`). User options include
 
-- `out_dir`: Path to directory to store output files.
+- `out_dir`: Path to the directory to store output files.
 - `cov_used`: List of column names contained in the sample annotation file to be included as known covariates.
 - `find_q_method`: Method to determine latent space dimension of autoencoder.
 - `pval_dist`: Distribution (Gaussian or Student's t-test) for P-value calculation.
