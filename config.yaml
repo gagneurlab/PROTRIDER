@@ -1,9 +1,16 @@
+# path to output directory to store result files
 out_dir: 
-index_col: "geneID"
+# column name in the input file indicating the column name containing the protein names/IDs
+index_col: "proteinID" 
 
-## Preprocessing params
+## Preprocessing params 
+# maximum percentage of missing values per protein
 max_allowed_NAs_per_protein: 0.3
+# transformation funtion to apply to the data before model fitting. options are log10, log2, and log
 log_func_name: "log"
+
+# names of columns in the sample annotation file to be passed as covariates to the autoencoder. 
+# leaving this empty results in no covariates passed to the model
 cov_used:
     #- "gender"
     #- "PROTEOMICS_BATCH"
@@ -18,15 +25,17 @@ seed:
 
 ## Model params
 autoencoder_training: True ## when set to false, it returns values after (PCA) initialization without training
-n_layers: 1
-n_epochs: 100
-lr: 1e-5
+
+n_layers: 1 # number of layers for the autoencoder model
+n_epochs: 100 # number of training epochs
+lr: 1e-4 # learning rate
 batch_size: 
-find_q_method: "OHT" # OHT, gs
-init_pca: True
-h_dim: # only for n_layers>1
+
+find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs
+init_pca: True # PCA initialization
+h_dim: # hidden dimension, only for n_layers>1
 
 ## Stat params
-pval_dist: 't' # gaussian, t
-pval_adj: 'by' # by, bh
+pval_dist: 't' # Distribution choice for P-value computation. Options: gaussian, t
+pval_adj: 'by' # Multiple testing correction. Options: by, bh
 pval_sided: 'two-sided'

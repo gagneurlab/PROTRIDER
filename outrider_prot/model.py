@@ -5,21 +5,26 @@ import math
 
 class ConditionalEnDecoder(nn.Module):
 
-    def __init__(self, in_dim, out_dim, h_dim=None, n_layers=1):
+    def __init__(self, in_dim, out_dim, h_dim=None, n_layers=1, is_encoder=True):
         super().__init__()
+        self.n_layers = n_layers
         if n_layers==1:
             self.model = nn.Linear(in_dim, out_dim, bias=True)
             
         elif n_layers>1:
             modules = []
-            modules.append( nn.Linear(in_dim, h_dim, bias=True) )
+            modules.append( nn.Linear(in_dim, h_dim, bias=False) )
+            modules.append(nn.ReLU())
             for _ in range(1, n_layers-1):
-                modules.append(nn.Linear(h_dim, h_dim, bias=True))
+                modules.append(nn.Linear(h_dim, h_dim, bias=False))
                 modules.append(nn.ReLU())
-            modules.append(nn.Linear(h_dim, out_dim, bias=True))
+            modules.append(nn.Linear(h_dim, out_dim, bias=not is_encoder))
             self.model = nn.Sequential(*modules)
 
-    def forward(self, x, cond=None):
+    def forward(self, x, prot_means=None, cond=None):
+        if (prot_means is not None) & (self.n_layers>1):
+            #print('substracting prot means')
+            x = x - prot_means
         if cond is not None:
             x = torch.cat([x, cond], 1)    
         return self.model(x)
@@ -37,18 +42,23 @@ class ProtriderAutoencoder(nn.Module):
         self.n_layers = n_layers
         self.encoder = ConditionalEnDecoder(in_dim=in_dim+n_cov, 
                                             out_dim=latent_dim, 
-                                            h_dim=h_dim, n_layers=n_layers)
+                                            h_dim=h_dim, n_layers=n_layers,
+                                           is_encoder=True)
         
         self.decoder = ConditionalEnDecoder(in_dim=latent_dim+n_cov, 
                                             out_dim=in_dim, 
-                                            h_dim=h_dim, n_layers=n_layers)
+                                            h_dim=h_dim, n_layers=n_layers,
+                                           is_encoder=False
+                                           )
         
-    def forward(self, x, cond=None):
-        return self.decoder(self.encoder(x, cond), cond)
+    def forward(self, x, prot_means=None, cond=None):
+        return self.decoder(self.encoder(x, cond=cond, prot_means=prot_means), 
+                            cond=cond, prot_means=None)
 
     def _initialize_wPCA(self, Vt_q, prot_means, n_cov=0):
         if self.n_layers>1:
             print('[Warning] Initialization only possible for n_layers=1. Going back to random init...')
+            self.decoder.model[-1].bias.data.copy_( torch.from_numpy( prot_means).squeeze(0))
             return
         stdv = 1. / math.sqrt(n_cov+1)
         
@@ -88,19 +98,18 @@ def train(dataset, model,
         
     for epoch in tqdm(range(n_epochs)):
         running_loss = _train_iteration(data_loader, model, optimizer)
-        #print('[%d] loss: %.6f' %
-        #      (epoch + 1, running_loss))
+        #print('[%d] loss: %.6f' % (epoch + 1, running_loss))
     return running_loss
 
 def _train_iteration(data_loader, model, optimizer):
     running_loss = 0.0
     n_batches = 0
     for batch_idx, data in enumerate(data_loader):
-        x, mask, cov = data
-
+        x, mask, cov, prot_means = data
+        
         # restore grads and compute model out
         optimizer.zero_grad()
-        x_hat = model(x, cov)
+        x_hat = model(x, prot_means=prot_means, cond=cov)
 
         # Compute the loss and its gradients
         loss = mse_masked(x_hat, x, mask)

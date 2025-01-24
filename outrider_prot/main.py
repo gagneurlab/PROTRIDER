@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import pprint
 import click
+import torch
 
 from .model import train, mse_masked
 from .datasets import ProtriderDataset
@@ -38,7 +39,7 @@ def main(config, input_intensities, sample_annotation=None) -> None:
 
     Links:
     - Publication: FIXME
-    - Official code repository: [FIXME]()
+    - Official code repository: https://github.com/gagneurlab/outrider-prot
 
     """
     
@@ -102,7 +103,8 @@ def main(config, input_intensities, sample_annotation=None) -> None:
     print('\tModel:', model)
     
     ## 4. Compute initial MSE loss
-    X_init = model(dataset.X, dataset.cov_one_hot)
+    X_init = model(dataset.X, 
+                   prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
     final_loss = mse_masked(dataset.X, X_init,
                             dataset.torch_mask).detach().numpy()
     print('\tInitial loss after model init: ', final_loss )
@@ -115,10 +117,11 @@ def main(config, input_intensities, sample_annotation=None) -> None:
         final_loss = train(dataset, model, 
               n_epochs = config['n_epochs'],
               learning_rate=float(config['lr']),
-             batch_size=config['batch_size']
-             )#.detach().numpy()
-        X_out = model(dataset.X, dataset.cov_one_hot)
-        #final_loss =  mse_masked(dataset.X, X_out, dataset.torch_mask).detach().numpy()
+              batch_size=config['batch_size'],
+              )#.detach().numpy()
+        X_out = model(dataset.X, 
+                      prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
+        final_loss =  mse_masked(dataset.X, X_out, dataset.torch_mask).detach().numpy()
         print('Final loss:', final_loss)
     
     # Store as df

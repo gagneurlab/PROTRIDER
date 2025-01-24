@@ -19,7 +19,6 @@ def _find_latent_dim(dataset, method='OHT',
         dataset._perform_svd()
         q = dataset._find_enc_dim_optht()
     else:
-        #return 7
         print('--- Grid search method for finding latent dim ---')
         print('--- Injecting outliers ---')
         injected_dataset, outlier_mask = _inject_outliers(dataset, inj_freq, inj_mean, inj_sd, seed)     
@@ -30,7 +29,9 @@ def _find_latent_dim(dataset, method='OHT',
         for latent_dim in possible_qs:
             print(f"--- Testing q = {latent_dim} ---")
             model = _init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim)
-            X_init = model(injected_dataset.X, injected_dataset.cov_one_hot)
+            X_init = model(injected_dataset.X, 
+                           prot_means=injected_dataset.prot_means_torch,
+                           cond=injected_dataset.cov_one_hot)
             final_loss = mse_masked(injected_dataset.X, X_init,
                                     injected_dataset.torch_mask).detach().numpy()
             print('\tInitial loss after model init: ', final_loss )
@@ -40,7 +41,9 @@ def _find_latent_dim(dataset, method='OHT',
                                n_epochs, learning_rate, batch_size)
             print(f'\tFinal loss: {final_loss}')
             
-            X_out = model(injected_dataset.X,  injected_dataset.cov_one_hot).detach().cpu().numpy()
+            X_out = model(injected_dataset.X,  
+                          prot_means=injected_dataset.prot_means_torch,
+                          cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
         
             if ~np.isfinite(final_loss):
                 auc_prec_rec = np.nan

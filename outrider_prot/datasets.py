@@ -66,6 +66,7 @@ class ProtriderDataset(Dataset):
         #self.X_target = self.X ### needed for outlier injection
         self.mask = np.array(self.mask.values)
         self.torch_mask = torch.tensor(self.mask)
+        self.prot_means_torch = torch.from_numpy( self.prot_means).squeeze(0)
         
         # sample annotation including covariates
         if sa_file is not None:
@@ -111,7 +112,7 @@ class ProtriderDataset(Dataset):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return (self.X[idx], self.torch_mask[idx], self.cov_one_hot[idx])
+        return (self.X[idx], self.torch_mask[idx], self.cov_one_hot[idx], self.prot_means_torch)
 
     def _perform_svd(self):
         self.U, self.s, self.Vt = np.linalg.svd(np.hstack([self.centered_log_data_noNA,
