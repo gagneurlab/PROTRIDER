@@ -53,11 +53,14 @@ def main(config, input_intensities, sample_annotation=None) -> None:
         path.mkdir(parents=True, exist_ok=True)
     
     if config['log_func_name'] == "log2":
-            log_func = np.log2
+        log_func = np.log2
+        base_fn = lambda x : 2**x
     elif config['log_func_name'] == "log10":
         log_func = np.log10
+        base_fn = lambda x : 10**x
     elif config['log_func_name']=='log':
         log_func = np.log
+        base_fn = np.exp
     else:
         raise ValueError(f"Log func {config['log_func_name']} not supported.")
 
@@ -151,9 +154,8 @@ def main(config, input_intensities, sample_annotation=None) -> None:
     df_Z.index = dataset.data.index
 
     pseudocount = config['pseudocount'] #0.01
-    log2fc = np.log2(dataset.data + pseudocount) - np.log2(df_out + pseudocount)
-    fc = (dataset.data + pseudocount) / (df_out + pseudocount)
-        
+    log2fc = np.log2(base_fn(dataset.data) + pseudocount) - np.log2(base_fn(df_out) + pseudocount)
+    fc = (base_fn(dataset.data) + pseudocount) / (base_fn(df_out) + pseudocount)
     
     outs_per_sample = np.sum(df_pvals_adj.values<=config['outlier_threshold'], axis=1)
     
