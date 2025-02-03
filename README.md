@@ -1,6 +1,6 @@
-# OUTRIDER-prot
+# PROTRIDER
 
-OUTRIDER-prot is an autoencoder-based method to call protein outliers from mass spectrometry-based proteomics datasets.
+PROTRIDER is an autoencoder-based method to call protein outliers from mass spectrometry-based proteomics datasets.
 
 For more information see:
 
@@ -8,10 +8,10 @@ For more information see:
 
 ### Prerequisites
 
-OUTRIDER-prot was trained and tested using Python 3.8 on a Linux system. The list of required packages for running OUTRIDER-prot can be found in the file requirements.txt.
+PROTRIDER was trained and tested using Python 3.8 on a Linux system. The list of required packages for running PROTRIDER can be found in the file requirements.txt.
 
 Using pip and conda environments
-We recommend installing and running OUTRIDER-prot on a dedicated conda environment. To create and activate the conda environment run the following commands:
+We recommend installing and running PROTRIDER on a dedicated conda environment. To create and activate the conda environment run the following commands:
 
 ```
 conda create --name outrider_prot_env python=3.8
@@ -21,7 +21,7 @@ conda activate outrider_prot_env
 More information on conda environments can be found in Conda's user guide.
 
 
-To install OUTRIDER-prot run the following command inside the root directory:
+To install PROTRIDER run the following command inside the root directory:
 
 ```
 pip install .
@@ -44,16 +44,16 @@ An example dataset can be found in this repository.
 
 ### Configuration file
 
-To run OUTRIDER-prot, a configuration file needs to be provided. This can be adapted from the configuration file provided in this code repo (`config.yaml`). User options include
+To run PROTRIDER, a configuration file needs to be provided. This can be adapted from the configuration file provided in this code repo (`config.yaml`). User options include
 
 - `out_dir`: Path to the directory to store output files.
 - `cov_used`: List of column names contained in the sample annotation file to be included as known covariates.
 - `find_q_method`: Method to determine latent space dimension of autoencoder.
 - `pval_dist`: Distribution (Gaussian or Student's t-test) for P-value calculation.
 
-### Running OUTRIDER-prot from the command line
+### Running PROTRIDER from the command line
 
-Run OUTRIDER-prot using the following command: 
+Run PROTRIDER using the following command: 
 
 ```
 protrider --config <config_path> --input_intensities <intensities_path> --sample_annotation <sample_anno_path>
