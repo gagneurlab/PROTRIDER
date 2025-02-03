@@ -1,13 +1,13 @@
 from setuptools import setup, find_packages
 
 setup(
-        name='outrider_prot',
+        name='protrider',
         version='1.0',
         author="Ines Scheller, Daniela Klaproth-Andrade",
         author_email = "daniela.andrade@tum.de",
         description = 
-        '''OUTRIDER-prot
-            FIXME
+        '''PROTRIDER
+            Protein outlier detection method
         ''',
         python_requires = ">=3.7",
         install_requires = ['click',
@@ -22,15 +22,16 @@ setup(
                             'scipy',
                             'scikit-learn'
                             ],
-        url='https://github.com/gagneurlab/outrider_prot',
+        url='https://github.com/gagneurlab/PROTRIDER',
         license='',
-        packages=find_packages(include=['outrider_prot', 'outrider_prot.*']),
+        packages=find_packages(include=['protrider',
+                                        'protrider.*']),
         zip_safe=False,
         entry_points={
             'console_scripts': [
-                'outrider_prot = outrider_prot.main:main',
+                'protrider = protrider.main:main',
             ],
         },
     include_package_data=True,
-    #package_data={'outrider_prot': ['data/*.csv']},
+    #package_data={'protrider': ['data/*.csv']},
 )

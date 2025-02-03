@@ -33,13 +33,13 @@ from .model_helper import _find_latent_dim, _init_model
     type=click.Path(exists=True, dir_okay=False),
 )
 def main(config, input_intensities, sample_annotation=None) -> None:
-    """# OUTRIDER-PROT
+    """# PROTRIDER
 
-    OUTRIDER-PROT is a package for calling protein outliers on mass spectrometry data
+    PROTRIDER is a package for calling protein outliers on mass spectrometry data
 
     Links:
     - Publication: FIXME
-    - Official code repository: https://github.com/gagneurlab/outrider-prot
+    - Official code repository: https://github.com/gagneurlab/PROTRIDER
 
     """
     
@@ -264,7 +264,7 @@ def report_summary(raw_in, ae_in, ae_out, zscores,
         print(f'\t--- Removing non-significant sample-protein combinations. \n\tOriginal len: {original_len}, new len: {df_res.shape[0]}---')
         
     if out_dir is not None:
-        out_p = f'{out_dir}/outrider_prot_summary.csv'
+        out_p = f'{out_dir}/protrider_summary.csv'
         df_res.to_csv(out_p, index=None)
         print(f'\t--- Wrote output summary with shape {df_res.shape} to <{out_p}>---')
     return df_res
