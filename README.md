@@ -40,7 +40,7 @@ protrider --help
 - Experimental protein intensities as csv or tab file, in which the columns represent samples and the rows represent proteins.
 - Optional: sample annotation file containing known covariates to be passed to the model.
 
-An example dataset can be found in this repository. 
+An example dataset can be found in this repository under `sample_data/`. 
 
 ### Configuration file
 
