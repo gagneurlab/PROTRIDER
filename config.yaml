@@ -1,7 +1,7 @@
 # path to output directory to store result files
 out_dir: 
 # column name in the input file indicating the column name containing the protein names/IDs
-index_col: "proteinID" 
+index_col: "protein_ID" 
 
 ## Preprocessing params 
 # maximum percentage of missing values per protein
@@ -39,3 +39,8 @@ h_dim: # hidden dimension, only for n_layers>1
 pval_dist: 't' # Distribution choice for P-value computation. Options: gaussian, t
 pval_adj: 'by' # Multiple testing correction. Options: by, bh
 pval_sided: 'two-sided'
+pseudocount: 0.01 # for FC computation
+
+## Reporting params
+outlier_threshold: 0.1
+report_all: True

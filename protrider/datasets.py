@@ -41,10 +41,13 @@ class ProtriderDataset(Dataset):
         self.raw_data = copy.deepcopy(self.data) ## for storing output
         
         # normalize data with deseq2
-        self.data, size_factors = deseq2_norm(self.data.replace(np.nan, 0, 
+        deseq_out, size_factors = deseq2_norm(self.data.replace(np.nan, 0, 
                                                                 inplace=False))
-        self.data.replace(0, np.nan, inplace=True)
-        
+        ### check that deseq2 worked, otherwise ignore
+        if deseq_out.isna().sum().sum()==0:
+            self.data = deseq_out
+            self.data.replace(0, np.nan, inplace=True)
+
         # log data
         self.data = log_func(self.data)
         #### FINISHED PREPROCESSING
