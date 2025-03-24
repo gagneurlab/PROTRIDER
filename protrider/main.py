@@ -62,7 +62,12 @@ def main(config, input_intensities, sample_annotation=None) -> None:
         log_func = np.log
         base_fn = np.exp
     else:
-        raise ValueError(f"Log func {config['log_func_name']} not supported.")
+        if config['log_func_name'] is None:
+            print('[WARNING] No log function passed for preprocessing. \nAssuming data is already log transformed.')
+            log_func = lambda x: x # id
+            base_fn = np.exp
+        else:
+            raise ValueError(f"Log func {config['log_func_name']} not supported.")
 
     ## Catch some errors/inconsistencies
     if config['find_q_method']=='OHT' and config['cov_used'] is not None:
