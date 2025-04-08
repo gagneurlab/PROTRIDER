@@ -1,17 +1,104 @@
-import pandas as pd
 import numpy as np
 import scipy
 import tqdm
+import traceback
 
-def get_pvals(res, how='two-sided', dis='gaussian', padjust=None):
-    hows =  ('two-sided', 'left', 'right')
+
+def fit_t_distribution(res, max_df=100000):
+    # Fitting a Student's  degree of freedom is unstable
+    # Moreover it tends to over-fit to outliers.
+    # Hence, we fit Student for as many columns as possible in a first pass
+    # Then we get the median df as default df
+    # If do not we get enough converged fits (which is unlikely), we take df=10 as default
+    # and we fit again with using that common default df for all.
+
+    dfs = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
+    mus = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
+    sigmas = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
+
+    # First pass: Fit the degree of freedom for each column of the data matrix
+    ## if pv is too large, replace with np.nan --> it means it did not converge
+    for j in tqdm.tqdm(range(res.shape[1])):
+        x = np.asarray(res[:, j])
+        mask = ~np.isfinite(x)  # np.isnan(x)
+        try:
+            df, _, _ = scipy.stats.t.fit(x[~mask])
+            dfs[j] = df if df <= max_df else 10
+        except Exception as e:
+            traceback.print_exc()
+            dfs[j] = np.nan
+
+    # Report the number of non-converged fits
+    print(f"1st pass did not converge for {np.sum(np.isnan(dfs))} out of {len(dfs)} samples.")
+
+    # Determine the default degree of freedom
+    if np.sum(~np.isnan(dfs)) >= 10:
+        df0 = np.nanmedian(dfs)  # Use median df if enough fits converged
+    else:
+        df0 = 10  # Fallback default df
+    print('Degree of freedom after first pass', df0)
+
+    for j in tqdm.tqdm(range(res.shape[1])):
+        x = np.asarray(res[:, j])
+        mask = ~np.isfinite(x)  # np.isnan(x)
+        try:
+            _, loc, scale = scipy.stats.t.fit(x[~mask], fix_df=df0)  # fitdistr(x[!mask], densfun = "t", df=df)
+            mus[j] = loc
+            sigmas[j] = scale
+        except Exception as e:
+            traceback.print_exc()
+            dfs[j] = np.nan
+            mus[j] = np.nan
+            sigmas[j] = np.nan
+
+    return dfs, sigmas, mus
+
+
+def fit_residuals(res, dis='gaussian'):
+    if dis == 'gaussian':
+        params = dict(dis=dis,
+                      sigma=np.nanstd(res, ddof=1, axis=0),
+                      mu=np.nanmean(res, axis=0))
+    else:
+        dfs, sigmas, mus = fit_t_distribution(res)
+        params = dict(dis=dis, df=dfs, sigma=sigmas, mu=mus)
+
+    return params
+
+
+def get_pvals_cv(res, dist_params: dict, how='two-sided', padjust=None):
+    dis = dist_params['dis']
+    hows = ('two-sided', 'left', 'right')
     if not how in hows:
         raise ValueError(f'Method should be in <{hows}>')
     dists = ('gaussian', 't')
     if not dis in dists:
         raise ValueError(f'Distribution should be in <{dists}>')
 
-    if dis=='gaussian':
+    if dis == 'gaussian':
+        pvals, z = get_pv_norm(res, how, mu=dist_params['mu'], sigma=dist_params['sigma'])
+    else:
+        pv_t, pvals, dfs, z = get_pv_t(res, how, sigma=dist_params['sigma'], mu=dist_params['mu'], df=dist_params['df'])
+
+    if padjust is not None:
+        mask = ~np.isfinite(pvals)
+        pvals_adj = false_discovery_control(np.where(mask, 1, pvals), axis=1, method=padjust)
+        pvals_adj[mask] = np.nan
+    else:
+        pvals_adj = None
+
+    return pvals, z, pvals_adj
+
+
+def get_pvals(res, how='two-sided', dis='gaussian', padjust=None):
+    hows = ('two-sided', 'left', 'right')
+    if not how in hows:
+        raise ValueError(f'Method should be in <{hows}>')
+    dists = ('gaussian', 't')
+    if not dis in dists:
+        raise ValueError(f'Distribution should be in <{dists}>')
+
+    if dis == 'gaussian':
         pvals, z = get_pv_norm(res, how)
     else:
         pv_t, pvals, dfs, z = get_pv_t(res, how)
@@ -22,33 +109,36 @@ def get_pvals(res, how='two-sided', dis='gaussian', padjust=None):
         pvals_adj[mask] = np.nan
     else:
         pvals_adj = None
-        
+
     return pvals, z, pvals_adj
 
-def get_pv_norm(res, how='two-sided'):
 
+def get_pv_norm(res, how='two-sided', mu=None, sigma=None):
     mask = ~np.isfinite(res)
     # Compute z-scores
-    sigma = np.nanstd(res, ddof=1, axis=0)
-    z = (res - np.nanmean(res, axis=0)) / sigma # 
-    
-    hows =  ('two-sided', 'left', 'right')
+    if mu is None:
+        mu = np.nanmean(res, axis=0)
+    if sigma is None:
+        sigma = np.nanstd(res, ddof=1, axis=0)
+    z = (res - mu) / sigma  #
+
+    hows = ('two-sided', 'left', 'right')
     if not how in hows:
         raise ValueError(f'Method should be in <{hows}>')
-    
+
     if how in ('left', 'two-sided'):
         left_pvals = pvals = scipy.stats.norm.cdf(np.where(mask, 0, z))
         pvals = left_pvals
     if how in ('right', 'two-sided'):
         right_pvals = scipy.stats.norm.sf(np.where(mask, 0, z))
         pvals = right_pvals
-    if how=='two-sided':
-        pvals = 2*np.minimum(left_pvals, right_pvals)
+    if how == 'two-sided':
+        pvals = 2 * np.minimum(left_pvals, right_pvals)
     pvals[mask] = np.nan
     return pvals, z
 
 
-def get_pv_t_base(x, df=None, max_df=None, how='two-sided'):
+def get_pv_t_base(x, df=None, max_df=None, how='two-sided', mu=None, sigma=None):
     """
     Fit a Student's t distribution to data in vector x.
     Returns the corresponding two-sided p-values and the (fitted) degree of freedom.
@@ -63,18 +153,18 @@ def get_pv_t_base(x, df=None, max_df=None, how='two-sided'):
             - 'pv': Two-sided p-values.
             - 'df': Fitted degrees of freedom.
     """
-    hows =  ('two-sided', 'left', 'right')
+    hows = ('two-sided', 'left', 'right')
     if not how in hows:
         raise ValueError(f'Method should be in <{hows}>')
-        
+
     # For df smaller than 2 the variance is not defined. 
     # We don't use these extreme heavy-tail distribs in practice.
     if df is not None and df <= 2:
         raise ValueError("Degrees of freedom (df) must be greater than 2.")
-    
+
     # Mask for NaN values
     x = np.asarray(x)
-    mask = ~np.isfinite(x) #np.isnan(x)
+    mask = ~np.isfinite(x)  # np.isnan(x)
     pv = np.full_like(x, np.nan, dtype=np.float64)
     z = np.full_like(x, np.nan, dtype=np.float64)
 
@@ -83,73 +173,74 @@ def get_pv_t_base(x, df=None, max_df=None, how='two-sided'):
             # If ddof is not provided, we estimate it jointly with location and scale
             # This is known to be unstable.
             # It will often not converge (e.g. 10% of the cases)
-            df, loc, scale = scipy.stats.t.fit(x[~mask]) #fitdistr(x[!mask], densfun = "t")
-            #df, loc, scale = fit_student_t(x[~mask])
+            df, mu, sigma = scipy.stats.t.fit(x[~mask])  # fitdistr(x[!mask], densfun = "t")
+            # df, loc, scale = fit_student_t(x[~mask])
             if max_df is not None:
                 df = df if df <= max_df else np.nan
-        else:
-            #loc, scale = fit_student_t_fixed_df(x[~mask], df=df) #fitdistr(x[!mask], densfun = "t", df=df)
-            _, loc, scale = scipy.stats.t.fit(x[~mask], fix_df=df) #fitdistr(x[!mask], densfun = "t", df=df)
-        
-        z[~mask] = (x[~mask] - loc) / scale
+        elif (mu is None) or (sigma is None):
+            # loc, scale = fit_student_t_fixed_df(x[~mask], df=df) #fitdistr(x[!mask], densfun = "t", df=df)
+            _, mu, sigma = scipy.stats.t.fit(x[~mask], fix_df=df)  # fitdistr(x[!mask], densfun = "t", df=df)
+
+        z[~mask] = (x[~mask] - mu) / sigma
 
         # Calculate p-values
-        if how=='left':
+        if how == 'left':
             pv[~mask] = scipy.stats.t.cdf(z[~mask], df)
-        elif how=='right':
+        elif how == 'right':
             pv[~mask] = scipy.stats.t.sf(z[~mask], df)
         else:
             pv[~mask] = 2 * np.minimum(scipy.stats.t.cdf(z[~mask], df), scipy.stats.t.sf(z[~mask], df))
-            
+
         return pv, df, z
-    
+
     except Exception as e:
         print(e)
         return pv, np.nan, z
 
 
-def get_pv_t(res, how='two-sided', MAX_DF=100000):
+def get_pv_t(res, how='two-sided', MAX_DF=100000, sigma=None, mu=None, df=None):
     # Fitting a Student's  degree of freedom is unstable
     # Moreover it tends to over-fit to outliers.
     # Hence, we fit Student for as many columns as possible in a first pass
     # Then we get the median df as default df
     # If do not we get enough converged fits (which is unlikely), we take df=10 as default
     # and we fit again with using that common default df for all.
-    
+
     # Initialize variables
     pv_t = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
     dfs = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
-    
-    # First pass: Fit the degree of freedom for each column of the data matrix
-    ## if pv is too large, replace with np.nan --> it means it did not converge
-    for j in tqdm.tqdm(range(res.shape[1])):
-        x = res[:, j]
-        pv, df, _ = get_pv_t_base(x, how=how)  # Call the previously defined function
-        pv_t[:, j] = pv  # Store p-values (optional, can omit this step in final code)
-        dfs[j] = df if df<=MAX_DF else 10#np.nan
-    
 
-    # Report the number of non-converged fits
-    print(f"1st pass did not converge for {np.sum(np.isnan(dfs))} out of {len(dfs)} samples.")
-    
-    # Determine the default degree of freedom
-    if np.sum(~np.isnan(dfs)) >= 10:
-        df0 = np.nanmedian(dfs)  # Use median df if enough fits converged
-    else:
-        df0 = 10  # Fallback default df
-    
-    print('Degree of freedom after first pass', df0)
+    if df is None:
+        # First pass: Fit the degree of freedom for each column of the data matrix
+        ## if pv is too large, replace with np.nan --> it means it did not converge
+        for j in tqdm.tqdm(range(res.shape[1])):
+            x = res[:, j]
+            pv, df0, _ = get_pv_t_base(x, how=how)  # Call the previously defined function
+            pv_t[:, j] = pv  # Store p-values (optional, can omit this step in final code)
+            dfs[j] = df0 if df0 <= MAX_DF else 10  # np.nan
+
+        # Report the number of non-converged fits
+        print(f"1st pass did not converge for {np.sum(np.isnan(dfs))} out of {len(dfs)} samples.")
+
+        # Determine the default degree of freedom
+        if np.sum(~np.isnan(dfs)) >= 10:
+            df = np.nanmedian(dfs)  # Use median df if enough fits converged
+        else:
+            df = 10  # Fallback default df
+
+        print('Degree of freedom after first pass', df)
 
     # Second pass, fit distribution now using df
-    pv_t_df0 = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
+    pv_t_df = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
     z_scores = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store z-scores
     for j in tqdm.tqdm(range(res.shape[1])):
         x = res[:, j]
-        pv, _, z = get_pv_t_base(x, df=df0, how=how)
-        pv_t_df0[:, j] = pv  
+        pv, _, z = get_pv_t_base(x, df=df, how=how, mu=mu, sigma=sigma)
+        pv_t_df[:, j] = pv
         z_scores[:, j] = z
 
-    return pv_t, pv_t_df0, dfs, z_scores
+    return pv_t, pv_t_df, dfs, z_scores
+
 
 def false_discovery_control(ps, *, axis=0, method='bh'):
     # Input Validation and Special Cases
@@ -190,7 +281,7 @@ def false_discovery_control(ps, *, axis=0, method='bh'):
     ps = np.take_along_axis(ps, order, axis=-1)  # this copies ps
 
     # Equation 1 of [1] rearranged to reject when p is less than specified q
-    i = np.arange(1, m+1)
+    i = np.arange(1, m + 1)
     ps *= m / i
 
     # Theorem 1.3 of [2]
@@ -208,6 +299,3 @@ def false_discovery_control(ps, *, axis=0, method='bh'):
     ps = np.moveaxis(ps, -1, axis)
 
     return np.clip(ps, 0, 1)
-
-        
-    

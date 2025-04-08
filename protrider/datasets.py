@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset
 import torch.nn.functional as F
 from optht import optht
 import copy
@@ -132,4 +132,7 @@ class ProtriderDataset(Dataset):
             q = optht(self.centered_log_data_noNA, sv=self.s, sigma=None)
         return q
 
-
+class ProtriderSubset(Subset):
+    def __getattr__(self, name):
+        # fallback to original dataset's attributes
+        return getattr(self.dataset, name)
