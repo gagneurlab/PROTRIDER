@@ -130,10 +130,9 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
 
     ## 1. Initialize cross validation generator
     print('=== Initializing cross validation ===')
-    cv_gen = ProtriderCVGenerator(input_intensities, sample_annotation,
-                                  config['index_col'], config['cov_used'],
-                                  config['max_allowed_NAs_per_protein'],
-                                  log_func, num_folds=config['n_folds'], )
+    cv_gen = ProtriderCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
+                                  config['max_allowed_NAs_per_protein'], log_func, num_folds=config['n_folds'],
+                                  seed=config['seed'], )
     dataset = cv_gen.dataset
 
     # test results

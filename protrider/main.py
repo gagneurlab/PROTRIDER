@@ -85,12 +85,12 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
 
     if config['out_dir'] is not None:
         _write_results(summary=summary, result=result, model_info=model_info, out_dir=config['out_dir'],
-                       df_folds=df_folds)
+                       df_folds=df_folds, config=config)
 
     return summary
 
 
-def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, df_folds: DataFrame = None):
+def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, config: dict, df_folds: DataFrame = None):
     print('=== Saving output ===')
     out_dir = out_dir
 
@@ -133,6 +133,12 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, df_f
     out_p = f'{out_dir}/fc.csv'
     result.fc.T.to_csv(out_p, header=True, index=True)
     print(f"\t Saved fc scores to {out_p}")
+
+    # config
+    out_p = f'{out_dir}/config.yaml'
+    with open(out_p, 'w') as f:
+        yaml.safe_dump(config, f)
+    print(f"\t Saved run config to {out_p}")
 
     # latent space
     # FIXME
