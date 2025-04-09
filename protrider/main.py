@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import yaml
@@ -5,14 +7,16 @@ import os
 from pathlib import Path
 import pprint
 import click
-from typing import Callable, Iterable, Union
+from typing import Callable, Iterable, Union, Literal, Tuple
 from numpy.typing import ArrayLike
+from pandas import DataFrame
 from sklearn.model_selection import KFold, train_test_split
+from dataclasses import dataclass
 
 from .model import train, mse_masked, ProtriderAutoencoder
 from .datasets import ProtriderDataset, ProtriderSubset
 from .stats import get_pvals, fit_residuals, get_pvals_cv
-from .model_helper import _find_latent_dim, _init_model
+from .model_helper import find_latent_dim, init_model
 
 
 class ProtriderCVGenerator:
@@ -78,6 +82,28 @@ class ProtriderCVGenerator:
         return self.num_folds
 
 
+@dataclass
+class ModelInfo:
+    """Stores model information."""
+    q: np.array
+    learning_rate: np.array
+    n_epochs: np.array
+    loss: np.array
+
+
+@dataclass
+class Result:
+    """Stores results from a standard run of PROTRIDER."""
+    dataset: ProtriderDataset
+    df_out: pd.DataFrame
+    df_res: pd.DataFrame
+    df_pvals: pd.DataFrame
+    df_Z: pd.DataFrame
+    df_pvals_adj: pd.DataFrame
+    log2fc: np.ndarray
+    fc: np.ndarray
+
+
 # @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.command()
 @click.option(
@@ -137,29 +163,24 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
     if config['find_q_method'] == 'OHT' and config['cov_used'] is not None:
         raise ValueError('OHT not implemented with covariate inclusion yet')
 
-    if config['cross_val']:
+    if config.get('cross_val', False):
         if config['find_q_method'] != 'OHT':
             raise ValueError('Cross-validation only implemented with OHT method')
-        run_fun = _run_cv
+        if config.get('n_folds', 5) < 2:
+            raise ValueError('Cross-validation requires at least 2 folds')
+        result, model_info, df_folds = _run_cv(input_intensities, config, sample_annotation, log_func, base_fn)
     else:
-        run_fun = _run
+        result, model_info, = _run(input_intensities, config, sample_annotation, log_func, base_fn)
+        df_folds = None
 
-    dataset, df_out, df_res, q, final_loss, pvals, Z, pvals_adj = run_fun(input_intensities, config, sample_annotation,
-                                                                          log_func)
+    summary = _report_summary(result, config['pval_dist'], config['outlier_threshold'],
+                              config['report_all'])
 
-    df_pvals, df_Z, df_pvals_adj, log2fc, fc = _format_results(df_out=df_out, pvals=pvals, Z=Z,
-                                                               pvals_adj=pvals_adj, dataset=dataset,
-                                                               pseudocount=config['pseudocount'],
-                                                               outlier_threshold=config['outlier_threshold'],
-                                                               base_fn=base_fn)
     if config['out_dir'] is not None:
-        _write_results(dataset=dataset, q=q, final_loss=final_loss, df_out=df_out, df_res=df_res, df_pvals=df_pvals,
-                       df_Z=df_Z, df_pvals_adj=df_pvals_adj, fc=fc, log2fc=log2fc, out_dir=config['out_dir'])
+        _write_results(summary=summary, result=result, model_info=model_info, out_dir=config['out_dir'],
+                       df_folds=df_folds)
 
-    return _report_summary(dataset.raw_data, dataset.data, df_out, df_Z,
-                           df_pvals, df_pvals_adj, log2fc, fc,
-                           config['pval_dist'], config['outlier_threshold'],
-                           config['out_dir'], config['report_all'])
+    return summary
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder):
@@ -174,7 +195,7 @@ def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: Protrid
     return df_out, loss
 
 
-def _run(input_intensities, config, sample_annotation, log_func):
+def _run(input_intensities, config, sample_annotation, log_func, base_fn) -> Tuple[Result, ModelInfo]:
     ## 1. Initialize dataset
     print('=== Initializing dataset ===')
     dataset = ProtriderDataset(csv_file=input_intensities,
@@ -186,30 +207,30 @@ def _run(input_intensities, config, sample_annotation, log_func):
 
     ## 2. Find latent dim
     print('=== Finding latent dimension ===')
-    q = _find_latent_dim(dataset, method=config['find_q_method'],
-                         ### Params for grid search method
-                         inj_freq=float(config['inj_freq']),
-                         inj_mean=config['inj_mean'],
-                         inj_sd=config['inj_sd'],
-                         seed=config['seed'],
-                         init_wPCA=config['init_pca'],
-                         n_layers=config['n_layers'],
-                         h_dim=config['h_dim'],
-                         n_epochs=config['n_epochs'],
-                         learning_rate=float(config['lr']),
-                         batch_size=config['batch_size'],
-                         pval_sided=config['pval_sided'],
-                         pval_dist=config['pval_dist'],
-                         out_dir=config['out_dir']
-                         )
+    q = find_latent_dim(dataset, method=config['find_q_method'],
+                        ### Params for grid search method
+                        inj_freq=float(config['inj_freq']),
+                        inj_mean=config['inj_mean'],
+                        inj_sd=config['inj_sd'],
+                        seed=config['seed'],
+                        init_wPCA=config['init_pca'],
+                        n_layers=config['n_layers'],
+                        h_dim=config['h_dim'],
+                        n_epochs=config['n_epochs'],
+                        learning_rate=float(config['lr']),
+                        batch_size=config['batch_size'],
+                        pval_sided=config['pval_sided'],
+                        pval_dist=config['pval_dist'],
+                        out_dir=config['out_dir']
+                        )
     print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
 
     ## 3. Init model with found latent dim
-    model = _init_model(dataset, q,
-                        init_wPCA=config['init_pca'],
-                        n_layer=config['n_layers'],
-                        h_dim=config['h_dim']
-                        )
+    model = init_model(dataset, q,
+                       init_wPCA=config['init_pca'],
+                       n_layer=config['n_layers'],
+                       h_dim=config['h_dim']
+                       )
     print('\tModel:', model)
 
     ## 4. Compute initial MSE loss
@@ -233,17 +254,21 @@ def _run(input_intensities, config, sample_annotation, log_func):
                                     how=config['pval_sided'],
                                     dis=config['pval_dist'],
                                     padjust=config["pval_adj"])
+    result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals, Z=Z, pvals_adj=pvals_adj,
+                             pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
+                             base_fn=base_fn)
+    model_info = ModelInfo(q=q, learning_rate=config['lr'], n_epochs=config['n_epochs'], loss=final_loss)
+    return result, model_info
 
-    return dataset, df_out, df_res, q, final_loss, pvals, Z, pvals_adj
 
-
-def _run_cv(input_intensities, config, sample_annotation, log_func):
+def _run_cv(input_intensities, config, sample_annotation, log_func, base_fn) -> Tuple[
+    Result, ModelInfo, DataFrame]:
     ## 1. Initialize cross validation generator
     print('=== Initializing cross validation generator ===')
     cv_gen = ProtriderCVGenerator(input_intensities, sample_annotation,
                                   config['index_col'], config['cov_used'],
                                   config['max_allowed_NAs_per_protein'],
-                                  log_func)
+                                  log_func, num_folds=config['n_folds'], )
     dataset = cv_gen.dataset
 
     # test results
@@ -253,6 +278,8 @@ def _run_cv(input_intensities, config, sample_annotation, log_func):
     df_out_list = []
     df_res_list = []
     loss_list = []
+    q_list = []
+    folds_list = []
     ## 2. Loop over folds
     for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
         print(f'=== Fold {fold + 1} ===')
@@ -261,30 +288,30 @@ def _run_cv(input_intensities, config, sample_annotation, log_func):
 
         ## 3. Find latent dim
         print('=== Finding latent dimension ===')
-        q = _find_latent_dim(train_subset, method=config['find_q_method'],
-                             ### Params for grid search method
-                             inj_freq=float(config['inj_freq']),
-                             inj_mean=config['inj_mean'],
-                             inj_sd=config['inj_sd'],
-                             seed=config['seed'],
-                             init_wPCA=config['init_pca'],
-                             n_layers=config['n_layers'],
-                             h_dim=config['h_dim'],
-                             n_epochs=config['n_epochs'],
-                             learning_rate=float(config['lr']),
-                             batch_size=config['batch_size'],
-                             pval_sided=config['pval_sided'],
-                             pval_dist=config['pval_dist'],
-                             out_dir=config['out_dir']
-                             )
+        q = find_latent_dim(train_subset, method=config['find_q_method'],
+                            ### Params for grid search method
+                            inj_freq=float(config['inj_freq']),
+                            inj_mean=config['inj_mean'],
+                            inj_sd=config['inj_sd'],
+                            seed=config['seed'],
+                            init_wPCA=config['init_pca'],
+                            n_layers=config['n_layers'],
+                            h_dim=config['h_dim'],
+                            n_epochs=config['n_epochs'],
+                            learning_rate=float(config['lr']),
+                            batch_size=config['batch_size'],
+                            pval_sided=config['pval_sided'],
+                            pval_dist=config['pval_dist'],
+                            out_dir=config['out_dir']
+                            )
         print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
 
         ## 4. Init model with found latent dim
-        model = _init_model(train_subset, q,
-                            init_wPCA=config['init_pca'],
-                            n_layer=config['n_layers'],
-                            h_dim=config['h_dim']
-                            )
+        model = init_model(train_subset, q,
+                           init_wPCA=config['init_pca'],
+                           n_layer=config['n_layers'],
+                           h_dim=config['h_dim']
+                           )
         print('\tModel:', model)
 
         ## 5. Compute initial MSE loss
@@ -322,24 +349,28 @@ def _run_cv(input_intensities, config, sample_annotation, log_func):
         df_out_list.append(df_out_test)
         df_res_list.append(df_res_test)
         loss_list.append(loss)
+        q_list.append(q)
         pvals_list.append(pvals)
         Z_list.append(Z)
         pvals_adj_list.append(pvals_adj)
+        folds_list.extend([fold] * len(pvals))
 
     pvals = np.concatenate(pvals_list)
     Z = np.concatenate(Z_list)
     pvals_adj = np.concatenate(pvals_adj_list)
-    losses = np.concatenate(loss_list)
     df_out = pd.concat(df_out_list)
     df_res = pd.concat(df_res_list)
+    df_folds = pd.DataFrame({'fold': folds_list, }, index=df_out.index)
 
-    # todo fix this
-    final_loss = np.mean(losses)
+    result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals, Z=Z,
+                             pvals_adj=pvals_adj, pseudocount=config['pseudocount'],
+                             outlier_threshold=config['outlier_threshold'], base_fn=base_fn)
+    model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config['lr']),
+                           n_epochs=np.array(config['n_epochs']), loss=np.array(loss_list))
+    return result, model_info, df_folds
 
-    return dataset, df_out, df_res, q, final_loss, pvals, Z, pvals_adj
 
-
-def _format_results(df_out, pvals, Z, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn):
+def _format_results(df_out, df_res, pvals, Z, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn):
     # Store as df
     df_pvals_adj = pd.DataFrame(pvals_adj)
     df_pvals_adj.columns = dataset.data.columns
@@ -363,69 +394,90 @@ def _format_results(df_out, pvals, Z, pvals_adj, dataset, pseudocount, outlier_t
     print(f'\tFinished computing pvalues. No. outliers per sample in median: {np.nanmedian(outs_per_sample)}')
     print(f'\t {sorted(outs_per_sample)}')
 
-    return df_pvals, df_Z, df_pvals_adj, log2fc, fc
+    return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_pvals=df_pvals, df_Z=df_Z,
+                  df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc)
 
 
-def _write_results(dataset, q, final_loss, df_out, df_res, df_pvals, df_Z, df_pvals_adj, fc, log2fc, out_dir):
-    if out_dir is not None:
-        print('=== Saving output ===')
-        out_dir = out_dir
+def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, df_folds: DataFrame = None):
+    print('=== Saving output ===')
+    out_dir = out_dir
 
-        # AE input
-        out_p = f'{out_dir}/processed_input.csv'
-        dataset.data.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved processed_input to {out_p}")
+    # AE input
+    out_p = f'{out_dir}/processed_input.csv'
+    result.dataset.data.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved processed_input to {out_p}")
 
-        # AE output
-        out_p = f'{out_dir}/output.csv'
-        df_out.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved output to {out_p}")
+    # AE output
+    out_p = f'{out_dir}/output.csv'
+    result.df_out.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved output to {out_p}")
 
-        # residuals
-        out_p = f'{out_dir}/residuals.csv'
-        df_res.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved residuals to {out_p}")
+    # residuals
+    out_p = f'{out_dir}/residuals.csv'
+    result.df_res.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved residuals to {out_p}")
 
-        # p-values
-        out_p = f'{out_dir}/pvals.csv'
-        df_pvals.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved P-values to {out_p}")
+    # p-values
+    out_p = f'{out_dir}/pvals.csv'
+    result.df_pvals.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved P-values to {out_p}")
 
-        # p-values adj
-        out_p = f'{out_dir}/pvals_adj.csv'
-        df_pvals_adj.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved adjusted P-values to {out_p}")
+    # p-values adj
+    out_p = f'{out_dir}/pvals_adj.csv'
+    result.df_pvals_adj.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved adjusted P-values to {out_p}")
 
-        # Z-scores
-        out_p = f'{out_dir}/zscores.csv'
-        df_Z.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved z scores to {out_p}")
+    # Z-scores
+    out_p = f'{out_dir}/zscores.csv'
+    result.df_Z.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved z scores to {out_p}")
 
-        # log2fc
-        out_p = f'{out_dir}/log2fc.csv'
-        log2fc.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved log2fc scores to {out_p}")
+    # log2fc
+    out_p = f'{out_dir}/log2fc.csv'
+    result.log2fc.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved log2fc scores to {out_p}")
 
-        # fc
-        out_p = f'{out_dir}/fc.csv'
-        fc.T.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved fc scores to {out_p}")
+    # fc
+    out_p = f'{out_dir}/fc.csv'
+    result.fc.T.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved fc scores to {out_p}")
 
-        # latent space
-        # FIXME
+    # latent space
+    # FIXME
 
-        # Additional info
-        out_p = f'{out_dir}/additional_info.csv'
-        df_info = pd.DataFrame([[q, final_loss]], columns=["opt_q", "final_loss"])
-        df_info.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved additional input to {out_p}")
+    # Additional info
+    out_p = f'{out_dir}/additional_info.csv'
+    model_info_dict = dataclasses.asdict(model_info)
+    if model_info.q.ndim == 0:
+        # make all variables of model_info arrays
+        model_info_dict = {k: np.array([v]) for k, v in model_info_dict.items()}
+
+    folds = np.arange(len(model_info_dict['q']))
+    df_info = pd.DataFrame(model_info_dict, index=pd.Index(folds, name='fold'))
+    df_info.to_csv(out_p, header=True, index=True)
+    print(f"\t Saved additional input to {out_p}")
+
+    # folds
+    if df_folds is not None:
+        out_p = f'{out_dir}/folds.csv'
+        df_folds.to_csv(out_p, header=True, index=True)
+        print(f"\t Saved folds to {out_p}")
+
+    out_p = f'{out_dir}/protrider_summary.csv'
+    summary.to_csv(out_p, index=None)
+    print(f'\t Saved output summary with shape {summary.shape} to <{out_p}>---')
 
 
-def _report_summary(raw_in, ae_in, ae_out, zscores,
-                    pvals, pvals_adj,
-                    log2fc, fc,
-                    pval_dist='gaussian',
-                    outlier_thres=0.1, out_dir=None, include_all=False):
+def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, include_all=False):
+    ae_out = result.df_out
+    ae_in = result.dataset.data
+    raw_in = result.dataset.raw_data
+    zscores = result.df_Z
+    pvals = result.df_pvals
+    pvals_adj = result.df_pvals_adj
+    log2fc = result.log2fc
+    fc = result.fc
+
     print('=== Reporting summary ===')
     ae_out = (ae_out.reset_index().melt(id_vars='sampleID')
               .rename(columns={'value': 'PROTEIN_EXPECTED_LOG2INT'}))
@@ -463,10 +515,6 @@ def _report_summary(raw_in, ae_in, ae_out, zscores,
         print(
             f'\t--- Removing non-significant sample-protein combinations. \n\tOriginal len: {original_len}, new len: {df_res.shape[0]}---')
 
-    if out_dir is not None:
-        out_p = f'{out_dir}/protrider_summary.csv'
-        df_res.to_csv(out_p, index=None)
-        print(f'\t--- Wrote output summary with shape {df_res.shape} to <{out_p}>---')
     return df_res
 
 

@@ -78,7 +78,7 @@ def get_pvals_cv(res, dist_params: dict, how='two-sided', padjust=None):
     if dis == 'gaussian':
         pvals, z = get_pv_norm(res, how, mu=dist_params['mu'], sigma=dist_params['sigma'])
     else:
-        pv_t, pvals, dfs, z = get_pv_t(res, how, sigma=dist_params['sigma'], mu=dist_params['mu'], df=dist_params['df'])
+        pvals, dfs, z = get_pv_t(res, how, sigmas=dist_params['sigma'], mus=dist_params['mu'], dfs=dist_params['df'])
 
     if padjust is not None:
         mask = ~np.isfinite(pvals)
@@ -101,7 +101,7 @@ def get_pvals(res, how='two-sided', dis='gaussian', padjust=None):
     if dis == 'gaussian':
         pvals, z = get_pv_norm(res, how)
     else:
-        pv_t, pvals, dfs, z = get_pv_t(res, how)
+        pvals, dfs, z = get_pv_t(res, how)
 
     if padjust is not None:
         mask = ~np.isfinite(pvals)
@@ -198,7 +198,7 @@ def get_pv_t_base(x, df=None, max_df=None, how='two-sided', mu=None, sigma=None)
         return pv, np.nan, z
 
 
-def get_pv_t(res, how='two-sided', MAX_DF=100000, sigma=None, mu=None, df=None):
+def get_pv_t(res, how='two-sided', MAX_DF=100000, sigmas=None, mus=None, dfs=None):
     # Fitting a Student's  degree of freedom is unstable
     # Moreover it tends to over-fit to outliers.
     # Hence, we fit Student for as many columns as possible in a first pass
@@ -206,40 +206,38 @@ def get_pv_t(res, how='two-sided', MAX_DF=100000, sigma=None, mu=None, df=None):
     # If do not we get enough converged fits (which is unlikely), we take df=10 as default
     # and we fit again with using that common default df for all.
 
-    # Initialize variables
-    pv_t = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
-    dfs = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
-
-    if df is None:
+    if dfs is None:
+        dfs = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
         # First pass: Fit the degree of freedom for each column of the data matrix
         ## if pv is too large, replace with np.nan --> it means it did not converge
         for j in tqdm.tqdm(range(res.shape[1])):
             x = res[:, j]
             pv, df0, _ = get_pv_t_base(x, how=how)  # Call the previously defined function
-            pv_t[:, j] = pv  # Store p-values (optional, can omit this step in final code)
             dfs[j] = df0 if df0 <= MAX_DF else 10  # np.nan
 
         # Report the number of non-converged fits
         print(f"1st pass did not converge for {np.sum(np.isnan(dfs))} out of {len(dfs)} samples.")
 
-        # Determine the default degree of freedom
-        if np.sum(~np.isnan(dfs)) >= 10:
-            df = np.nanmedian(dfs)  # Use median df if enough fits converged
-        else:
-            df = 10  # Fallback default df
+    # Determine the default degree of freedom
+    if np.sum(~np.isnan(dfs)) >= 10:
+        df = np.nanmedian(dfs)  # Use median df if enough fits converged
+    else:
+        df = 10  # Fallback default df
 
-        print('Degree of freedom after first pass', df)
+    print('Degree of freedom after first pass', df)
 
     # Second pass, fit distribution now using df
-    pv_t_df = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
+    pv_t = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
     z_scores = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store z-scores
     for j in tqdm.tqdm(range(res.shape[1])):
         x = res[:, j]
+        mu = mus[j] if mus is not None else None
+        sigma = sigmas[j] if sigmas is not None else None
         pv, _, z = get_pv_t_base(x, df=df, how=how, mu=mu, sigma=sigma)
-        pv_t_df[:, j] = pv
+        pv_t[:, j] = pv
         z_scores[:, j] = z
 
-    return pv_t, pv_t_df, dfs, z_scores
+    return pv_t, dfs, z_scores
 
 
 def false_discovery_control(ps, *, axis=0, method='bh'):
