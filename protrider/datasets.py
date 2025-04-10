@@ -15,7 +15,9 @@ from optht import optht
 
 class PCADataset(ABC):
     def __init__(self):
+        # centered log data around the protein means
         self.centered_log_data_noNA = None
+        # one hot encoding of covariates
         self.cov_one_hot = None
         self.centered_log_data_noNA = None
         self.U = None
