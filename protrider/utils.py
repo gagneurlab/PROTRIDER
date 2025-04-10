@@ -146,7 +146,7 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
     folds_list = []
     ## 2. Loop over folds
     for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
-        print(f'=== Fold {fold + 1} ===')
+        print(f'=== Fold {fold} ===')
         print(f'\tTrain subset size: {len(train_subset)}')
         print(f'\tValidation subset size: {len(val_subset)}')
         print(f'\tTest subset size: {len(test_subset)}')
@@ -197,8 +197,8 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
                   )
             df_out_train, train_loss = _inference(train_subset, model)
             df_out_val, val_loss = _inference(val_subset, model)
-            print(f'\tFinal train loss: {train_loss}')
-            print(f'\tFinal validation loss: {val_loss}')
+            print(f'\tFold {fold} train loss: {train_loss}')
+            print(f'\tFold {fold} validation loss: {val_loss}')
 
         ## 7. Fit residual distribution on validation set
         print('=== Estimating residual distribution parameters on validation set ===')
@@ -208,6 +208,7 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
         # 8. Compute pvals on test set
         print('=== Running model on test set ===')
         df_out_test, loss = _inference(test_subset, model)
+        print(f'\tFold {fold} test loss: {train_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
         pvals, Z, pvals_adj = get_pvals_cv(df_res_test.values, how=config['pval_sided'], padjust=config["pval_adj"],
                                            dist_params=dist_params)

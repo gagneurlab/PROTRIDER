@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 import pandas as pd
 from sklearn.metrics import precision_recall_curve, auc
@@ -21,8 +22,8 @@ def find_latent_dim(dataset, method='OHT',
                     ):
     if method == "OHT":
         print('-- OHT method for finding latent dim ---')
-        _perform_svd(dataset)
-        q = _find_enc_dim_optht(dataset)
+        dataset.perform_svd()
+        q = dataset.find_enc_dim_optht()
     else:
         print('--- Grid search method for finding latent dim ---')
         print('--- Injecting outliers ---')
@@ -87,27 +88,10 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None):
 
     if init_wPCA:
         print('\tInitializing model weights with PCA')
-        _perform_svd(dataset)
+        dataset.perform_svd()
         Vt_q = dataset.Vt[:latent_dim]
         model._initialize_wPCA(Vt_q, dataset.prot_means, n_cov)
     return model
-
-
-def _perform_svd(dataset: Union[ProtriderSubset, ProtriderDataset]):
-    dataset.U, dataset.s, dataset.Vt = np.linalg.svd(np.hstack([dataset.centered_log_data_noNA,
-                                                                dataset.cov_one_hot.detach().cpu().numpy()
-                                                                ]),
-                                                     full_matrices=False)
-    print('\tFinished fitting SVD with shapes U:', dataset.U.shape, 's:', dataset.s.shape, 'Vt:', dataset.Vt.shape)
-
-
-def _find_enc_dim_optht(dataset: Union[ProtriderSubset, ProtriderDataset]):
-    try:
-        q = optht(dataset.centered_log_data_noNA, sv=dataset.s, sigma=None)
-    except:
-        _perform_svd(dataset)
-        q = optht(dataset.centered_log_data_noNA, sv=dataset.s, sigma=None)
-    return q
 
 
 def _get_gs_params(data_shape, MP=2, a=4, max_steps=25):

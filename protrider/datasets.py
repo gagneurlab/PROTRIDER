@@ -9,9 +9,36 @@ from torch.utils.data import Dataset, Subset
 import torch.nn.functional as F
 import copy
 from pydeseq2.preprocessing import deseq2_norm
+from abc import ABC
+from optht import optht
 
 
-class ProtriderDataset(Dataset):
+class PCADataset(ABC):
+    def __init__(self):
+        self.centered_log_data_noNA = None
+        self.cov_one_hot = None
+        self.centered_log_data_noNA = None
+        self.U = None
+        self.s = None
+        self.Vt = None
+
+    def perform_svd(self):
+        self.U, self.s, self.Vt = np.linalg.svd(np.hstack([self.centered_log_data_noNA,
+                                                           self.cov_one_hot.detach().cpu().numpy()
+                                                           ]),
+                                                full_matrices=False)
+        print('\tFinished fitting SVD with shapes U:', self.U.shape, 's:', self.s.shape, 'Vt:', self.Vt.shape)
+
+    def find_enc_dim_optht(self):
+        try:
+            q = optht(self.centered_log_data_noNA, sv=self.s, sigma=None)
+        except:
+            self.perform_svd()
+            q = optht(self.centered_log_data_noNA, sv=self.s, sigma=None)
+        return q
+
+
+class ProtriderDataset(Dataset, PCADataset):
     def __init__(self, csv_file, index_col, sa_file=None,
                  cov_used=None, log_func=np.log,
                  maxNA_filter=0.3):
@@ -120,7 +147,7 @@ class ProtriderDataset(Dataset):
         return (self.X[idx], self.torch_mask[idx], self.cov_one_hot[idx], self.prot_means_torch)
 
 
-class ProtriderSubset(Subset):
+class ProtriderSubset(Subset, PCADataset):
     def __init__(self, dataset, indices):
         super().__init__(dataset, indices)
         self.prot_means = np.nanmean(self.data, axis=0, keepdims=1)
