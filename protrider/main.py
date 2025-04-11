@@ -6,6 +6,9 @@ from pathlib import Path
 import pprint
 import click
 from pandas import DataFrame
+# todo add to setup.py and requirements.txt
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
 
@@ -160,6 +163,41 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
         out_p = f'{out_dir}/folds.csv'
         df_folds.to_csv(out_p, header=True, index=True)
         print(f"\t Saved folds to {out_p}")
+
+    # loss history
+    if model_info.train_loss_history is not None:
+        out_p = f'{out_dir}/loss_history.csv'
+        train_loss_history = model_info.train_loss_history
+        val_loss_history = model_info.val_loss_history
+        loss_history_dfs = []
+        for fold, train_loss_per_epoch in enumerate(train_loss_history):
+            _df = pd.DataFrame(
+                dict(fold=fold, type='train', loss=train_loss_per_epoch, epoch=np.arange(len(train_loss_per_epoch))))
+            loss_history_dfs.append(_df)
+        for fold, val_loss_per_epoch in enumerate(val_loss_history):
+            _df = pd.DataFrame(
+                dict(fold=fold, type='validation', loss=val_loss_per_epoch, epoch=np.arange(len(val_loss_per_epoch))))
+            loss_history_dfs.append(_df)
+        loss_history_df = pd.concat(loss_history_dfs)
+        loss_history_df.to_csv(out_p, header=True, index=False)
+        print(f"\t Saved loss history to {out_p}")
+
+        # plot the loss history; stratified by fold
+        plot_dir = Path(out_dir) / 'plots'
+        plot_dir.mkdir(parents=False, exist_ok=True)
+        sns.set(style="whitegrid")
+        plt.figure(figsize=(10, 6))
+        for fold in loss_history_df['fold'].unique():
+            out_p = f'{plot_dir}/loss_history_fold{fold}.png'
+            fold_df = loss_history_df[loss_history_df['fold'] == fold]
+            sns.lineplot(data=fold_df, x='epoch', y='loss', hue='type')
+            plt.title(f'Loss history for fold {fold}')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.legend(title=f'Fold {fold}')
+            plt.savefig(out_p)
+            plt.close()
+        print(f"\t Saved loss history plots to {plot_dir}")
 
     out_p = f'{out_dir}/protrider_summary.csv'
     summary.to_csv(out_p, index=None)

@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 from pandas import DataFrame
 from dataclasses import dataclass
 
-from .model import train, mse_masked, ProtriderAutoencoder
+from .model import train, train_val, mse_masked, ProtriderAutoencoder
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderCVGenerator
 from .stats import get_pvals, fit_residuals, get_pvals_cv
 from .model_helper import find_latent_dim, init_model
@@ -18,7 +18,9 @@ class ModelInfo:
     q: np.array
     learning_rate: np.array
     n_epochs: np.array
-    loss: np.array
+    test_loss: np.array
+    train_loss_history: List[np.array] = None
+    val_loss_history: List[np.array] = None
 
 
 @dataclass
@@ -109,7 +111,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals, Z=Z, pvals_adj=pvals_adj,
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
-    model_info = ModelInfo(q=q, learning_rate=config['lr'], n_epochs=config['n_epochs'], loss=final_loss)
+    model_info = ModelInfo(q=q, learning_rate=config['lr'], n_epochs=config['n_epochs'], test_loss=final_loss)
     return result, model_info
 
 
@@ -141,7 +143,9 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
     pvals_adj_list = []
     df_out_list = []
     df_res_list = []
-    loss_list = []
+    test_loss_list = []
+    train_loss_list = []
+    val_loss_list = []
     q_list = []
     folds_list = []
     ## 2. Loop over folds
@@ -184,17 +188,18 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
         df_out_val, val_loss = _inference(val_subset, model)
         print(f'\tTrain loss after model init: {train_loss}')
         print(f'\tValidation loss after model init: {val_loss}')
-
         if config['autoencoder_training']:
             print('=== Fitting model ===')
             ## 6. Train model
             # todo train validate (hyperparameter tuning)
             # todo pass validation set as well
-            train(train_subset, model,
-                  n_epochs=config['n_epochs'],
-                  learning_rate=float(config['lr']),
-                  batch_size=config['batch_size'],
-                  )
+            train_losses, val_losses = train_val(train_subset, val_subset, model,
+                                     n_epochs=config['n_epochs'],
+                                     learning_rate=float(config['lr']),
+                                     batch_size=config['batch_size'],
+                                     )
+            train_loss_list.append(train_losses)
+            val_loss_list.append(val_losses)
             df_out_train, train_loss = _inference(train_subset, model)
             df_out_val, val_loss = _inference(val_subset, model)
             print(f'\tFold {fold} train loss: {train_loss}')
@@ -214,7 +219,7 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
                                            dist_params=dist_params)
         df_out_list.append(df_out_test)
         df_res_list.append(df_res_test)
-        loss_list.append(loss)
+        test_loss_list.append(loss)
         q_list.append(q)
         pvals_list.append(pvals)
         Z_list.append(Z)
@@ -232,7 +237,8 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
                              pvals_adj=pvals_adj, pseudocount=config['pseudocount'],
                              outlier_threshold=config['outlier_threshold'], base_fn=base_fn)
     model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config['lr']),
-                           n_epochs=np.array(config['n_epochs']), loss=np.array(loss_list))
+                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(test_loss_list),
+                           train_loss_history=train_loss_list, val_loss_history=val_loss_list)
     return result, model_info, df_folds
 
 

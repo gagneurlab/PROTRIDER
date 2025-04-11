@@ -2,33 +2,35 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 import math
+import numpy as np
+
 
 class ConditionalEnDecoder(nn.Module):
 
     def __init__(self, in_dim, out_dim, h_dim=None, n_layers=1, is_encoder=True):
         super().__init__()
         self.n_layers = n_layers
-        if n_layers==1:
+        if n_layers == 1:
             self.model = nn.Linear(in_dim, out_dim, bias=True)
-            
-        elif n_layers>1:
+
+        elif n_layers > 1:
             modules = []
-            modules.append( nn.Linear(in_dim, h_dim, bias=False) )
+            modules.append(nn.Linear(in_dim, h_dim, bias=False))
             modules.append(nn.ReLU())
-            for _ in range(1, n_layers-1):
+            for _ in range(1, n_layers - 1):
                 modules.append(nn.Linear(h_dim, h_dim, bias=False))
                 modules.append(nn.ReLU())
             modules.append(nn.Linear(h_dim, out_dim, bias=not is_encoder))
             self.model = nn.Sequential(*modules)
 
     def forward(self, x, prot_means=None, cond=None):
-        if (prot_means is not None) & (self.n_layers>1):
-            #print('substracting prot means')
+        if (prot_means is not None) & (self.n_layers > 1):
+            # print('substracting prot means')
             x = x - prot_means
         if cond is not None:
-            x = torch.cat([x, cond], 1)    
+            x = torch.cat([x, cond], 1)
         return self.model(x)
-        
+
 
 ### input: s x (g + cov)
 ### encoder: (g+cov) x h
@@ -37,43 +39,43 @@ class ConditionalEnDecoder(nn.Module):
 ### output: s x g
 
 class ProtriderAutoencoder(nn.Module):
-    def __init__(self, in_dim, latent_dim, n_layers=1, n_cov=0, h_dim=None ):
+    def __init__(self, in_dim, latent_dim, n_layers=1, n_cov=0, h_dim=None):
         super().__init__()
         self.n_layers = n_layers
-        self.encoder = ConditionalEnDecoder(in_dim=in_dim+n_cov, 
-                                            out_dim=latent_dim, 
+        self.encoder = ConditionalEnDecoder(in_dim=in_dim + n_cov,
+                                            out_dim=latent_dim,
                                             h_dim=h_dim, n_layers=n_layers,
-                                           is_encoder=True)
-        
-        self.decoder = ConditionalEnDecoder(in_dim=latent_dim+n_cov, 
-                                            out_dim=in_dim, 
+                                            is_encoder=True)
+
+        self.decoder = ConditionalEnDecoder(in_dim=latent_dim + n_cov,
+                                            out_dim=in_dim,
                                             h_dim=h_dim, n_layers=n_layers,
-                                           is_encoder=False
-                                           )
-        
+                                            is_encoder=False
+                                            )
+
     def forward(self, x, prot_means=None, cond=None):
-        return self.decoder(self.encoder(x, cond=cond, prot_means=prot_means), 
+        return self.decoder(self.encoder(x, cond=cond, prot_means=prot_means),
                             cond=cond, prot_means=None)
 
     def _initialize_wPCA(self, Vt_q, prot_means, n_cov=0):
-        if self.n_layers>1:
+        if self.n_layers > 1:
             print('[Warning] Initialization only possible for n_layers=1. Going back to random init...')
-            self.decoder.model[-1].bias.data.copy_( torch.from_numpy( prot_means).squeeze(0))
+            self.decoder.model[-1].bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
             return
-        stdv = 1. / math.sqrt(n_cov+1)
-        
+        stdv = 1. / math.sqrt(n_cov + 1)
+
         self.encoder.model.weight.data.copy_(torch.from_numpy(Vt_q))
-        b = torch.cat([torch.from_numpy(prot_means), 
-                       torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv) # alternatively just set to zero
-                      ], axis=1) # prot_means
+        b = torch.cat([torch.from_numpy(prot_means),
+                       torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv)  # alternatively just set to zero
+                       ], axis=1)  # prot_means
         self.encoder.model.bias.data.copy_(-(torch.from_numpy(Vt_q) @ b.T).flatten())
-    
+
         ## Init cov with uniform distribution in range stdv
-        
+
         cov_dec_init = self.decoder.model.weight.data.uniform_(-stdv, stdv)[:, 0:n_cov]
         self.decoder.model.weight.data.copy_(torch.cat([torch.from_numpy(Vt_q.T)[:prot_means.shape[1]],
-                                                        cov_dec_init], axis=1) )
-        self.decoder.model.bias.data.copy_( torch.from_numpy( prot_means).squeeze(0))
+                                                        cov_dec_init], axis=1))
+        self.decoder.model.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
 
 
 def mse_masked(x_hat, x, mask):
@@ -81,32 +83,56 @@ def mse_masked(x_hat, x, mask):
     loss = mse_loss(x_hat, x)
     masked_loss = torch.where(mask, torch.nan, loss)
     mse_loss_val = masked_loss.nanmean()
-    return(mse_loss_val)
+    return mse_loss_val
 
 
-def train(dataset, model, 
-          n_epochs = 100, learning_rate=1e-3, 
+def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3, val_every_nepochs=5, batch_size=None):
+    # start data;pader
+    if batch_size is None:
+        batch_size = train_subset.X.shape[0]
+    data_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    train_losses = []
+    val_losses = []
+    for epoch in tqdm(range(n_epochs)):
+        train_loss = _train_iteration(data_loader, model, optimizer)
+        # print('[%d] loss: %.6f' % (epoch + 1, train_loss))
+
+        if epoch % val_every_nepochs == 0:
+            train_losses.append(train_loss)
+            x_hat_val = model(val_subset.X, prot_means=val_subset.prot_means_torch, cond=val_subset.cov_one_hot)
+            val_loss = mse_masked(val_subset.X, x_hat_val, val_subset.torch_mask).detach().numpy()
+            val_losses.append(val_loss)
+    # make losses a 2d array
+    return np.array(train_losses), np.array(val_losses)
+
+
+def train(dataset, model,
+          n_epochs=100, learning_rate=1e-3,
           batch_size=None):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
     data_loader = torch.utils.data.DataLoader(dataset,
-                                              batch_size=batch_size, 
+                                              batch_size=batch_size,
                                               shuffle=True)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-        
+
     for epoch in tqdm(range(n_epochs)):
         running_loss = _train_iteration(data_loader, model, optimizer)
-        #print('[%d] loss: %.6f' % (epoch + 1, running_loss))
+        # print('[%d] loss: %.6f' % (epoch + 1, running_loss))
     return running_loss
+
 
 def _train_iteration(data_loader, model, optimizer):
     running_loss = 0.0
     n_batches = 0
     for batch_idx, data in enumerate(data_loader):
         x, mask, cov, prot_means = data
-        
+
         # restore grads and compute model out
         optimizer.zero_grad()
         x_hat = model(x, prot_means=prot_means, cond=cov)
@@ -123,6 +149,3 @@ def _train_iteration(data_loader, model, optimizer):
         n_batches += 1
 
     return running_loss / n_batches
-
-
-
