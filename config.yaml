@@ -29,6 +29,8 @@ autoencoder_training: True ## when set to false, it returns values after (PCA) i
 n_layers: 1 # number of layers for the autoencoder model
 n_epochs: 100 # number of training epochs
 lr: 1e-4 # learning rate
+early_stopping_patience: 50 # patience for early stopping
+early_stopping_min_delta: 0.01 # metric to monitor for early stopping
 batch_size: 
 
 find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs
@@ -36,7 +38,7 @@ init_pca: True # PCA initialization
 h_dim: # hidden dimension, only for n_layers>1
 
 cross_val: True # run protrider in k-fold cross-validation mode; only implemented for OHT
-n_folds: 2 # number of folds for cross-validation; defaults to 5
+#n_folds: 5 # number of folds for cross-validation; defaults to 5
 
 ## Stat params
 pval_dist: 't' # Distribution choice for P-value computation. Options: gaussian, t

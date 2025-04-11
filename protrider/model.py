@@ -1,3 +1,5 @@
+import copy
+
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -86,25 +88,45 @@ def mse_masked(x_hat, x, mask):
     return mse_loss_val
 
 
-def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3, val_every_nepochs=5, batch_size=None):
+def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1, batch_size=None,
+              patience=100, min_delta=0.001):
     # start data;pader
     if batch_size is None:
         batch_size = train_subset.X.shape[0]
     data_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    min_val_loss = np.inf
+    best_model_wts = copy.deepcopy(model.state_dict())
+    early_stopping_counter = 0
+    early_stopping_epoch = 0
 
     train_losses = []
     val_losses = []
     for epoch in tqdm(range(n_epochs)):
         train_loss = _train_iteration(data_loader, model, optimizer)
-        # print('[%d] loss: %.6f' % (epoch + 1, train_loss))
 
         if epoch % val_every_nepochs == 0:
             train_losses.append(train_loss)
             x_hat_val = model(val_subset.X, prot_means=val_subset.prot_means_torch, cond=val_subset.cov_one_hot)
             val_loss = mse_masked(val_subset.X, x_hat_val, val_subset.torch_mask).detach().numpy()
             val_losses.append(val_loss)
+            print('[%d] train loss: %.6f' % (epoch + 1, train_loss))
+            print('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
+
+            if min_val_loss - val_loss > min_delta:
+                min_val_loss = val_loss
+                best_model_wts = copy.deepcopy(model.state_dict())
+                early_stopping_counter = 0
+                early_stopping_epoch = epoch
+            else:
+                early_stopping_counter += 1
+                if early_stopping_counter >= patience:
+                    print(f"\tEarly stopping at epoch {epoch + 1}")
+                    break
+
+    print('\tRestoring model weights from epoch', early_stopping_epoch)
+    model.load_state_dict(best_model_wts)
     # make losses a 2d array
     return np.array(train_losses), np.array(val_losses)
 

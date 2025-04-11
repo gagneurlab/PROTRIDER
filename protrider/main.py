@@ -6,11 +6,8 @@ from pathlib import Path
 import pprint
 import click
 from pandas import DataFrame
-# todo add to setup.py and requirements.txt
-import matplotlib.pyplot as plt
-import seaborn as sns
 
-from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
+from .utils import Result, ModelInfo, run_experiment, run_experiment_kfoldcv, run_experiment_loocv
 
 
 # @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -75,10 +72,14 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
     if config.get('cross_val', False):
         if config['find_q_method'] != 'OHT':
             raise ValueError('Cross-validation only implemented with OHT method')
-        if config.get('n_folds', 5) < 2:
-            raise ValueError('Cross-validation requires at least 2 folds')
-        result, model_info, df_folds = run_experiment_cv(input_intensities, config, sample_annotation, log_func,
-                                                         base_fn)
+        if config.get('n_folds', None) is not None:
+            result, model_info, df_folds = run_experiment_kfoldcv(input_intensities, config, sample_annotation,
+                                                                  log_func,
+                                                                  base_fn)
+        else:
+            result, model_info, df_folds = run_experiment_loocv(input_intensities, config, sample_annotation,
+                                                                log_func,
+                                                                base_fn)
     else:
         result, model_info, = run_experiment(input_intensities, config, sample_annotation, log_func, base_fn)
         df_folds = None
@@ -181,23 +182,6 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
         loss_history_df = pd.concat(loss_history_dfs)
         loss_history_df.to_csv(out_p, header=True, index=False)
         print(f"\t Saved loss history to {out_p}")
-
-        # plot the loss history; stratified by fold
-        plot_dir = Path(out_dir) / 'plots'
-        plot_dir.mkdir(parents=False, exist_ok=True)
-        sns.set(style="whitegrid")
-        plt.figure(figsize=(10, 6))
-        for fold in loss_history_df['fold'].unique():
-            out_p = f'{plot_dir}/loss_history_fold{fold}.png'
-            fold_df = loss_history_df[loss_history_df['fold'] == fold]
-            sns.lineplot(data=fold_df, x='epoch', y='loss', hue='type')
-            plt.title(f'Loss history for fold {fold}')
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss')
-            plt.legend(title=f'Fold {fold}')
-            plt.savefig(out_p)
-            plt.close()
-        print(f"\t Saved loss history plots to {plot_dir}")
 
     out_p = f'{out_dir}/protrider_summary.csv'
     summary.to_csv(out_p, index=None)

@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 import torch
 from numpy._typing import ArrayLike
-from sklearn.model_selection import KFold, train_test_split
+from sklearn.model_selection import KFold, train_test_split, LeaveOneOut
 from torch.utils.data import Dataset, Subset
 import torch.nn.functional as F
 import copy
@@ -57,6 +57,7 @@ class ProtriderDataset(Dataset, PCADataset):
             raise ValueError(f"Unsupported file type: {file_extension}")
 
         self.data = self.data.T
+        self.data = self.data.iloc[:8,:]
         self.data.index.names = ['sampleID']
         self.data.columns.name = 'proteinID'
         print(f'\tFinished reading raw data with shape: {self.data.shape}')
@@ -187,8 +188,80 @@ class ProtriderSubset(Subset, PCADataset):
     def cov_one_hot(self):
         return self.dataset.cov_one_hot[self.indices]
 
+    @staticmethod
+    def concat(subsets: Iterable['ProtriderSubset']):
+        """
+        Concatenate multiple ProtriderSubset instances into a single one.
+        """
+        indices = np.concatenate([subset.indices for subset in subsets])
+        return ProtriderSubset(subsets[0].dataset, indices)
 
-class ProtriderCVGenerator:
+
+class ProtriderLOOCVGenerator:
+    """
+    Cross-validation generator for the ProtriderDataset.
+    Creates train, validation, and test splits for k-fold cross validation.
+    """
+
+    def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
+                 cov_used: Iterable[str], maxNA_filter: float, log_func: Callable[[ArrayLike], ArrayLike],
+                 seed: int = 42):
+        """
+        Args:
+            input_intensities: Path to CSV file with protein intensity data
+            sample_annotation: Path to CSV file with sample annotations
+            index_col: Name of the index column
+            cov_used: List of covariates to use
+            maxNA_filter: Maximum proportion of NAs allowed per protein
+            log_func: Log function to apply to the data
+            num_folds: Number of cross-validation folds
+            seed: Random seed for reproducibility
+        """
+        self.input_intensities = input_intensities
+        self.sample_annotation = sample_annotation
+        self.index_col = index_col
+        self.cov_used = cov_used
+        self.maxNA_filter = maxNA_filter
+        self.log_func = log_func
+        self.seed = seed
+
+        # Initialize the dataset
+        self.dataset = ProtriderDataset(csv_file=input_intensities,
+                                        index_col=index_col,
+                                        sa_file=sample_annotation,
+                                        cov_used=cov_used,
+                                        log_func=log_func,
+                                        maxNA_filter=maxNA_filter)
+
+        # Set up LOO
+        self.loo = LeaveOneOut()
+
+    def __iter__(self):
+        """Generate train, validation, and test subsets for each fold"""
+        for train_val_idx, test_idx in self.loo.split(self.dataset):
+            print(f"Test: {test_idx}, Train+Val: {train_val_idx}")
+
+            # Further split train_val into train / val
+            train_idx, val_idx = train_test_split(
+                train_val_idx,
+                test_size=0.2,
+                random_state=self.seed,
+                shuffle=True
+            )
+
+            # Create subsets
+            train_subset = ProtriderSubset(self.dataset, train_idx)
+            val_subset = ProtriderSubset(self.dataset, val_idx)
+            test_subset = ProtriderSubset(self.dataset, test_idx)
+
+            yield train_subset, val_subset, test_subset
+
+    def __len__(self):
+        """Return the number of folds"""
+        return len(self.dataset)  # Number of samples in the dataset
+
+
+class ProtriderKfoldCVGenerator:
     """
     Cross-validation generator for the ProtriderDataset.
     Creates train, validation, and test splits for k-fold cross validation.
@@ -232,18 +305,25 @@ class ProtriderCVGenerator:
         self._folds = list(self.kf.split(self.dataset))
 
     def __iter__(self):
-        """Generate train, validation, and test subsets for each fold"""
-        for train_val_idx, test_idx in self._folds:
-            # Split training data into train and validation
-            train_idx, val_idx = train_test_split(train_val_idx, test_size=0.25,
-                                                  random_state=self.seed)
+        for run_idx in range(self.num_folds):
+            test_idx = run_idx
+            pca_idx = (run_idx + 1) % self.num_folds
+            val_idx = (run_idx + 2) % self.num_folds
+            train_idx = [i for i in range(self.num_folds) if i not in [test_idx, pca_idx, val_idx]]
+
+            # indices for each part
+            test_indices = self._folds[test_idx][1]
+            pca_indices = self._folds[pca_idx][1]
+            val_indices = self._folds[val_idx][1]
+            train_indices = np.concatenate([self._folds[i][1] for i in train_idx])
 
             # Create subsets
-            train_subset = ProtriderSubset(self.dataset, train_idx)
-            val_subset = ProtriderSubset(self.dataset, val_idx)
-            test_subset = ProtriderSubset(self.dataset, test_idx)
+            train_subset = ProtriderSubset(self.dataset, train_indices)
+            pca_subset = ProtriderSubset(self.dataset, pca_indices)
+            val_subset = ProtriderSubset(self.dataset, val_indices)
+            test_subset = ProtriderSubset(self.dataset, test_indices)
 
-            yield train_subset, val_subset, test_subset
+            yield pca_subset, train_subset, val_subset, test_subset
 
     def __len__(self):
         """Return the number of folds"""
