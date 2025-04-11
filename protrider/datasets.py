@@ -57,7 +57,6 @@ class ProtriderDataset(Dataset, PCADataset):
             raise ValueError(f"Unsupported file type: {file_extension}")
 
         self.data = self.data.T
-        self.data = self.data.iloc[:8,:]
         self.data.index.names = ['sampleID']
         self.data.columns.name = 'proteinID'
         print(f'\tFinished reading raw data with shape: {self.data.shape}')
