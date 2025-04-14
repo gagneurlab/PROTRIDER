@@ -49,3 +49,6 @@ pseudocount: 0.01 # for FC computation
 ## Reporting params
 outlier_threshold: 0.1
 report_all: True
+
+verbose: False
+device: 'cpu'

@@ -26,7 +26,7 @@ class PCADataset(ABC):
 
     def perform_svd(self):
         self.U, self.s, self.Vt = np.linalg.svd(np.hstack([self.centered_log_data_noNA,
-                                                           self.cov_one_hot.detach().cpu().numpy()
+                                                           self.cov_one_hot.detach().cpu()
                                                            ]),
                                                 full_matrices=False)
         print('\tFinished fitting SVD with shapes U:', self.U.shape, 's:', self.s.shape, 'Vt:', self.Vt.shape)
@@ -43,7 +43,7 @@ class PCADataset(ABC):
 class ProtriderDataset(Dataset, PCADataset):
     def __init__(self, csv_file, index_col, sa_file=None,
                  cov_used=None, log_func=np.log,
-                 maxNA_filter=0.3):
+                 maxNA_filter=0.3, device=torch.device('cpu')):
         super().__init__()
 
         # read csv
@@ -142,6 +142,13 @@ class ProtriderDataset(Dataset, PCADataset):
             self.cov_one_hot = torch.empty(self.X.shape[0], 0)
         print(f'\tFinished reading covariates. No. one-hot-encoded covariates used: ', self.cov_one_hot.shape[1])
 
+        ### Send data to cpu/gpu device
+        self.X = self.X.to(device)
+        self.torch_mask = self.torch_mask.to(device)
+        self.cov_one_hot = self.cov_one_hot.to(device)
+        self.prot_means_torch = self.prot_means_torch.to(device)
+
+    
     def __len__(self):
         return len(self.X)
 

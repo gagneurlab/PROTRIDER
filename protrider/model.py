@@ -41,7 +41,7 @@ class ConditionalEnDecoder(nn.Module):
 ### output: s x g
 
 class ProtriderAutoencoder(nn.Module):
-    def __init__(self, in_dim, latent_dim, n_layers=1, n_cov=0, h_dim=None):
+    def __init__(self, in_dim, latent_dim, n_layers=1, n_cov=0, h_dim=None ):
         super().__init__()
         self.n_layers = n_layers
         self.encoder = ConditionalEnDecoder(in_dim=in_dim + n_cov,
@@ -75,9 +75,9 @@ class ProtriderAutoencoder(nn.Module):
         ## Init cov with uniform distribution in range stdv
 
         cov_dec_init = self.decoder.model.weight.data.uniform_(-stdv, stdv)[:, 0:n_cov]
-        self.decoder.model.weight.data.copy_(torch.cat([torch.from_numpy(Vt_q.T)[:prot_means.shape[1]],
+        self.decoder.model.weight.data.copy_(torch.cat([torch.from_numpy(Vt_q.T)[:prot_means.shape[1]].to(self.decoder.model.weight.data.device),
                                                         cov_dec_init], axis=1))
-        self.decoder.model.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
+        self.decoder.model.bias.data.copy_( torch.from_numpy(prot_means).squeeze(0))
 
 
 def mse_masked(x_hat, x, mask):
@@ -133,7 +133,7 @@ def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3,
 
 def train(dataset, model,
           n_epochs=100, learning_rate=1e-3,
-          batch_size=None):
+          batch_size=None, verbose=False):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
@@ -145,7 +145,8 @@ def train(dataset, model,
 
     for epoch in tqdm(range(n_epochs)):
         running_loss = _train_iteration(data_loader, model, optimizer)
-        # print('[%d] loss: %.6f' % (epoch + 1, running_loss))
+        if verbose:
+            print('[%d] loss: %.6f' % (epoch + 1, running_loss))
     return running_loss
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pprint
 import click
 from pandas import DataFrame
+import torch
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_kfoldcv, run_experiment_loocv
 
@@ -69,19 +70,125 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
     if config['find_q_method'] == 'OHT' and config['cov_used'] is not None:
         raise ValueError('OHT not implemented with covariate inclusion yet')
 
+    device = torch.device("cuda" if ((torch.cuda.is_available()) & (config['device'] == 'gpu')) else "cpu")
+
+    # TODO CHECK
+    #
+    # device = torch.device("cuda" if ((torch.cuda.is_available()) & (config['device']=='gpu')) else "cpu")
+    #
+    # ## 1. Initialize dataset
+    # print('=== Initializing dataset ===')
+    # dataset = ProtriderDataset(csv_file=input_intensities,
+    #                            index_col=config['index_col'],
+    #                            sa_file=sample_annotation,
+    #                            cov_used=config['cov_used'],
+    #                            log_func=log_func,
+    #                            maxNA_filter=config['max_allowed_NAs_per_protein'],
+    #                            device=device
+    #                            )
+    #
+    # ## 2. Find latent dim
+    # print('=== Finding latent dimension ===')
+    # q = _find_latent_dim(dataset, method=config['find_q_method'],
+    #                      ### Params for grid search method
+    #                      inj_freq=float(config['inj_freq']),
+    #                      inj_mean=config['inj_mean'],
+    #                      inj_sd=config['inj_sd'],
+    #                      seed=config['seed'],
+    #                      init_wPCA=config['init_pca'],
+    #                      n_layers=config['n_layers'],
+    #                      h_dim=config['h_dim'],
+    #                      n_epochs=config['n_epochs'],
+    #                      learning_rate=float(config['lr']),
+    #                      batch_size=config['batch_size'],
+    #                      pval_sided=config['pval_sided'],
+    #                      pval_dist=config['pval_dist'],
+    #                      out_dir=config['out_dir'],
+    #                      device=device
+    #                      )
+    # print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
+    #
+    # ## 3. Init model with found latent dim
+    # model = _init_model(dataset, q,
+    #                     init_wPCA=config['init_pca'],
+    #                     n_layer=config['n_layers'],
+    #                     h_dim=config['h_dim']
+    #                     ).to(device)
+    #
+    # print('\tModel:', model, 'device:', device)
+    #
+    # ## 4. Compute initial MSE loss
+    # X_init = model(dataset.X,
+    #                prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
+    # final_loss = mse_masked(dataset.X, X_init,
+    #                         dataset.torch_mask).detach().cpu().numpy()
+    # print('\tInitial loss after model init: ', final_loss )
+    #
+    # if not config['autoencoder_training']:
+    #     X_out = X_init
+    # else:
+    #     print('=== Fitting model ===')
+    #     ## 5. Train model
+    #     final_loss = train(dataset, model,
+    #                        n_epochs = config['n_epochs'],
+    #                        learning_rate=float(config['lr']),
+    #                        batch_size=config['batch_size'],
+    #                        verbose=config['verbose']
+    #                        )#.detach().numpy()
+    #     X_out = model(dataset.X,
+    #                   prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
+    #     final_loss =  mse_masked(dataset.X, X_out, dataset.torch_mask).detach().cpu().numpy()
+    #     print('Final loss:', final_loss)
+    #
+    # # Store as df
+    # df_out = pd.DataFrame(X_out.detach().cpu().numpy())
+    # df_out.columns = dataset.data.columns
+    # df_out.index = dataset.data.index
+    #
+    # ## 6. Compute residuals, pvals, zscores
+    # print('=== Computing statistics ===')
+    # df_res = dataset.data - df_out # log data - pred data
+    # pvals, Z, pvals_adj, df0 = get_pvals(df_res.values,
+    #                                      how=config['pval_sided'],
+    #                                      dis=config['pval_dist'],
+    #                                      padjust=config["pval_adj"])
+    # # Store as df
+    # df_pvals_adj = pd.DataFrame(pvals_adj)
+    # df_pvals_adj.columns = dataset.data.columns
+    # df_pvals_adj.index = dataset.data.index
+    #
+    # # Store as df
+    # df_pvals = pd.DataFrame(pvals)
+    # df_pvals.columns = dataset.data.columns
+    # df_pvals.index = dataset.data.index
+    #
+    # df_Z = pd.DataFrame(Z)
+    # df_Z.columns = dataset.data.columns
+    # df_Z.index = dataset.data.index
+    #
+    # pseudocount = config['pseudocount'] #0.01
+    # log2fc = np.log2(base_fn(dataset.data) + pseudocount) - np.log2(base_fn(df_out) + pseudocount)
+    # fc = (base_fn(dataset.data) + pseudocount) / (base_fn(df_out) + pseudocount)
+    #
+    # outs_per_sample = np.sum(df_pvals_adj.values<=config['outlier_threshold'], axis=1)
+    # n_out_median = np.nanmedian(outs_per_sample)
+    # n_out_max = np.nanmax(outs_per_sample)
+    # n_out_total = np.nansum(outs_per_sample)
+    # print(f'\tFinished computing pvalues. No. outliers per sample in median: {n_out_median}')
+    # print(f'\t {sorted(outs_per_sample)}')
+
     if config.get('cross_val', False):
         if config['find_q_method'] != 'OHT':
             raise ValueError('Cross-validation only implemented with OHT method')
         if config.get('n_folds', None) is not None:
             result, model_info, df_folds = run_experiment_kfoldcv(input_intensities, config, sample_annotation,
-                                                                  log_func,
-                                                                  base_fn)
+                                                                  log_func, base_fn, device=device)
         else:
             result, model_info, df_folds = run_experiment_loocv(input_intensities, config, sample_annotation,
-                                                                log_func,
-                                                                base_fn)
+                                                                log_func, base_fn, device=device)
     else:
-        result, model_info, = run_experiment(input_intensities, config, sample_annotation, log_func, base_fn)
+        result, model_info, = run_experiment(input_intensities, config, sample_annotation, log_func, base_fn,
+                                             device=device)
         df_folds = None
 
     summary = _report_summary(result, config['pval_dist'], config['outlier_threshold'],
@@ -146,6 +253,21 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
 
     # latent space
     # FIXME
+
+    ## TODO CHECK
+    #         # Additional info
+    #         out_p = f'{out_dir}/additional_info.csv'
+    #         df_info = pd.DataFrame([[q, final_loss, df0, n_out_median, n_out_max, n_out_total]],
+    #                                columns=["opt_q", "final_loss", 'deg_of_freedom',
+    #                                         'n_out_median', 'n_out_max', 'n_out_total'])
+    #         df_info.to_csv(out_p, header=True, index=False)
+    #         print(f"\t Saved additional input to {out_p}")
+    #
+    #         out_p = f'{out_dir}/all_additional_info.csv'
+    #         config.pop('cov_used', None)
+    #         all_info = pd.concat([df_info, pd.DataFrame(config, index=[0])], axis=1)
+    #         all_info.to_csv( out_p, header=True, index=False)
+    #         print(f"\t Saved all additional input to {out_p}")
 
     # Additional info
     out_p = f'{out_dir}/additional_info.csv'
