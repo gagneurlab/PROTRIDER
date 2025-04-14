@@ -19,6 +19,7 @@ def _find_latent_dim(dataset, method='OHT',
         dataset._perform_svd()
         q = dataset._find_enc_dim_optht()
     else:
+        
         print('--- Grid search method for finding latent dim ---')
         print('--- Injecting outliers ---')
         injected_dataset, outlier_mask = _inject_outliers(dataset, inj_freq, inj_mean, inj_sd, seed)     
@@ -88,7 +89,7 @@ def _init_model(dataset, latent_dim, init_wPCA = True, n_layer=1, h_dim=None):
     return model
 
 
-def _get_gs_params(data_shape, MP=2, a=4, max_steps=25):
+def _get_gs_params(data_shape, MP=2, a=6, max_steps=25):
     b = round(min(data_shape) / MP)
     n_steps = min(max_steps, b)  # do at most 25 steps or N/3
     par_q = np.unique(np.round(np.exp(np.linspace(start=np.log(a),

@@ -86,7 +86,7 @@ def mse_masked(x_hat, x, mask):
 
 def train(dataset, model, 
           n_epochs = 100, learning_rate=1e-3, 
-          batch_size=None):
+          batch_size=None, verbose=False):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
@@ -98,7 +98,8 @@ def train(dataset, model,
         
     for epoch in tqdm(range(n_epochs)):
         running_loss = _train_iteration(data_loader, model, optimizer)
-        #print('[%d] loss: %.6f' % (epoch + 1, running_loss))
+        if verbose:
+            print('[%d] loss: %.6f' % (epoch + 1, running_loss))
     return running_loss
 
 def _train_iteration(data_loader, model, optimizer):

@@ -72,6 +72,8 @@ def main(config, input_intensities, sample_annotation=None) -> None:
     ## Catch some errors/inconsistencies
     if config['find_q_method']=='OHT' and config['cov_used'] is not None:
         raise ValueError('OHT not implemented with covariate inclusion yet')
+
+    device = torch.device("cuda" if ((torch.cuda.is_available()) & (config['device']=='gpu')) else "cpu")
     
     ## 1. Initialize dataset 
     print('=== Initializing dataset ===')
@@ -80,7 +82,9 @@ def main(config, input_intensities, sample_annotation=None) -> None:
                                sa_file=sample_annotation, 
                                cov_used=config['cov_used'],
                                log_func=log_func,
-                               maxNA_filter=config['max_allowed_NAs_per_protein'])
+                               maxNA_filter=config['max_allowed_NAs_per_protein'],
+                               device=device
+                              )
     
     ## 2. Find latent dim 
     print('=== Finding latent dimension ===')
@@ -107,14 +111,15 @@ def main(config, input_intensities, sample_annotation=None) -> None:
                         init_wPCA=config['init_pca'], 
                         n_layer=config['n_layers'],
                         h_dim=config['h_dim']
-                       )
-    print('\tModel:', model)
+                       ).to(device)
+    
+    print('\tModel:', model, 'device:', device)
     
     ## 4. Compute initial MSE loss
     X_init = model(dataset.X, 
                    prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
     final_loss = mse_masked(dataset.X, X_init,
-                            dataset.torch_mask).detach().numpy()
+                            dataset.torch_mask).detach().cpu().numpy()
     print('\tInitial loss after model init: ', final_loss )
     
     if not config['autoencoder_training']:
@@ -126,14 +131,15 @@ def main(config, input_intensities, sample_annotation=None) -> None:
               n_epochs = config['n_epochs'],
               learning_rate=float(config['lr']),
               batch_size=config['batch_size'],
+                           verbose=config['verbose']
               )#.detach().numpy()
         X_out = model(dataset.X, 
                       prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
-        final_loss =  mse_masked(dataset.X, X_out, dataset.torch_mask).detach().numpy()
+        final_loss =  mse_masked(dataset.X, X_out, dataset.torch_mask).detach().cpu().numpy()
         print('Final loss:', final_loss)
     
     # Store as df
-    df_out = pd.DataFrame(X_out.detach().numpy())
+    df_out = pd.DataFrame(X_out.detach().cpu().numpy())
     df_out.columns = dataset.data.columns
     df_out.index = dataset.data.index
     

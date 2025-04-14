@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import scipy
 import tqdm
+from joblib import Parallel, delayed
+
 
 def get_pvals(res, how='two-sided', dis='gaussian', padjust=None):
     hows =  ('two-sided', 'left', 'right')
@@ -115,6 +117,13 @@ def get_pv_t(res, how='two-sided', MAX_DF=100000):
     # Then we get the median df as default df
     # If do not we get enough converged fits (which is unlikely), we take df=10 as default
     # and we fit again with using that common default df for all.
+
+    def process_column(j):
+        x = res[:, j]
+        pv, df, _ = get_pv_t_base(x, how=how)
+        if df > MAX_DF:
+            df = np.nan
+        return j, pv, df
     
     # Initialize variables
     pv_t = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
@@ -122,13 +131,11 @@ def get_pv_t(res, how='two-sided', MAX_DF=100000):
     
     # First pass: Fit the degree of freedom for each column of the data matrix
     ## if pv is too large, replace with np.nan --> it means it did not converge
-    for j in tqdm.tqdm(range(res.shape[1])):
-        x = res[:, j]
-        pv, df, _ = get_pv_t_base(x, how=how)  # Call the previously defined function
-        pv_t[:, j] = pv  # Store p-values (optional, can omit this step in final code)
-        dfs[j] = df if df<=MAX_DF else 10#np.nan
+    results = Parallel(n_jobs=-1)(delayed(process_column)(j) for j in tqdm.trange(res.shape[1]))
+    for j, pv, df in results:
+        pv_t[:, j] = pv
+        dfs[j] = df
     
-
     # Report the number of non-converged fits
     print(f"1st pass did not converge for {np.sum(np.isnan(dfs))} out of {len(dfs)} samples.")
     
@@ -136,19 +143,24 @@ def get_pv_t(res, how='two-sided', MAX_DF=100000):
     if np.sum(~np.isnan(dfs)) >= 10:
         df0 = np.nanmedian(dfs)  # Use median df if enough fits converged
     else:
+        print('Falling back to default value')
         df0 = 10  # Fallback default df
     
     print('Degree of freedom after first pass', df0)
 
-    # Second pass, fit distribution now using df
-    pv_t_df0 = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
-    z_scores = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store z-scores
-    for j in tqdm.tqdm(range(res.shape[1])):
+    ### Second pass
+    def process_column_with_df(j):
         x = res[:, j]
         pv, _, z = get_pv_t_base(x, df=df0, how=how)
-        pv_t_df0[:, j] = pv  
+        return j, pv, z
+    
+    pv_t_df0 = np.full_like(res, np.nan, dtype=np.float64)
+    z_scores = np.full_like(res, np.nan, dtype=np.float64)
+    results_df0 = Parallel(n_jobs=-1)(delayed(process_column_with_df)(j) for j in tqdm.trange(res.shape[1]))
+    for j, pv, z in results_df0:
+        pv_t_df0[:, j] = pv
         z_scores[:, j] = z
-
+        
     return pv_t, pv_t_df0, dfs, z_scores
 
 def false_discovery_control(ps, *, axis=0, method='bh'):
