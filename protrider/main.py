@@ -147,7 +147,7 @@ def main(config, input_intensities, sample_annotation=None) -> None:
     ## 6. Compute residuals, pvals, zscores
     print('=== Computing statistics ===')
     df_res = dataset.data - df_out # log data - pred data    
-    pvals, Z, pvals_adj = get_pvals(df_res.values, 
+    pvals, Z, pvals_adj, df0 = get_pvals(df_res.values, 
                          how=config['pval_sided'], 
                          dis=config['pval_dist'],
                          padjust=config["pval_adj"])
@@ -170,8 +170,10 @@ def main(config, input_intensities, sample_annotation=None) -> None:
     fc = (base_fn(dataset.data) + pseudocount) / (base_fn(df_out) + pseudocount)
     
     outs_per_sample = np.sum(df_pvals_adj.values<=config['outlier_threshold'], axis=1)
-    
-    print(f'\tFinished computing pvalues. No. outliers per sample in median: {np.nanmedian(outs_per_sample)}')
+    n_out_median = np.nanmedian(outs_per_sample)
+    n_out_max = np.nanmax(outs_per_sample)
+    n_out_total = np.nansum(outs_per_sample)
+    print(f'\tFinished computing pvalues. No. outliers per sample in median: {n_out_median}')
     print(f'\t {sorted(outs_per_sample)}')
     if config['out_dir'] is not None:
         print('=== Saving output ===')
@@ -222,9 +224,17 @@ def main(config, input_intensities, sample_annotation=None) -> None:
 
         # Additional info
         out_p = f'{out_dir}/additional_info.csv'
-        df_info = pd.DataFrame([[q, final_loss]], columns=["opt_q", "final_loss"])
-        df_info.to_csv(out_p, header=True, index=True)
+        df_info = pd.DataFrame([[q, final_loss, df0, n_out_median, n_out_max, n_out_total]], 
+                               columns=["opt_q", "final_loss", 'deg_of_freedom', 
+                                        'n_out_median', 'n_out_max', 'n_out_total'])
+        df_info.to_csv(out_p, header=True, index=False)
         print(f"\t Saved additional input to {out_p}")
+
+        out_p = f'{out_dir}/all_additional_info.csv'
+        config.pop('cov_used', None)
+        all_info = pd.concat([df_info, pd.DataFrame(config, index=[0])], axis=1)
+        all_info.to_csv( out_p, header=True, index=False)
+        print(f"\t Saved all additional input to {out_p}")
             
     df_summary = report_summary(dataset.raw_data, dataset.data, df_out, df_Z, 
                                df_pvals, df_pvals_adj, log2fc, fc, 

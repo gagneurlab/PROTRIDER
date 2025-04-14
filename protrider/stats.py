@@ -15,8 +15,9 @@ def get_pvals(res, how='two-sided', dis='gaussian', padjust=None):
 
     if dis=='gaussian':
         pvals, z = get_pv_norm(res, how)
+        df0 = np.nan
     else:
-        pv_t, pvals, dfs, z = get_pv_t(res, how)
+        pv_t, pvals, dfs, z, df0 = get_pv_t(res, how)
 
     if padjust is not None:
         mask = ~np.isfinite(pvals)
@@ -25,7 +26,7 @@ def get_pvals(res, how='two-sided', dis='gaussian', padjust=None):
     else:
         pvals_adj = None
         
-    return pvals, z, pvals_adj
+    return pvals, z, pvals_adj, df0
 
 def get_pv_norm(res, how='two-sided'):
 
@@ -161,7 +162,7 @@ def get_pv_t(res, how='two-sided', MAX_DF=100000):
         pv_t_df0[:, j] = pv
         z_scores[:, j] = z
         
-    return pv_t, pv_t_df0, dfs, z_scores
+    return pv_t, pv_t_df0, dfs, z_scores, df0
 
 def false_discovery_control(ps, *, axis=0, method='bh'):
     # Input Validation and Special Cases

@@ -51,7 +51,7 @@ def _find_latent_dim(dataset, method='OHT',
             else:
                 X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
                 X_in[injected_dataset.mask] = np.nan
-                pvals, _, _ = get_pvals(X_in - X_out, 
+                pvals, _, _, _ = get_pvals(X_in - X_out, 
                                      how=pval_sided, 
                                      dis='gaussian',
                                      padjust=None
