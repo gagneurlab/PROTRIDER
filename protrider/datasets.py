@@ -125,7 +125,7 @@ class ProtriderDataset(Dataset):
 
     def _perform_svd(self):
         self.U, self.s, self.Vt = np.linalg.svd(np.hstack([self.centered_log_data_noNA,
-                                                          self.cov_one_hot.detach().cpu().numpy()
+                                                          self.cov_one_hot.detach().cpu()
                                                           ]),
                                                 full_matrices=False)
         print('\tFinished fitting SVD with shapes U:', self.U.shape, 's:', self.s.shape, 'Vt:', self.Vt.shape)

@@ -102,7 +102,8 @@ def main(config, input_intensities, sample_annotation=None) -> None:
                          batch_size=config['batch_size'],
                          pval_sided=config['pval_sided'],
                          pval_dist=config['pval_dist'],
-                         out_dir=config['out_dir']
+                         out_dir=config['out_dir'],
+                         device=device
                     )
     print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
     
