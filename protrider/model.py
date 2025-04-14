@@ -71,7 +71,7 @@ class ProtriderAutoencoder(nn.Module):
         ## Init cov with uniform distribution in range stdv
         
         cov_dec_init = self.decoder.model.weight.data.uniform_(-stdv, stdv)[:, 0:n_cov]
-        self.decoder.model.weight.data.copy_(torch.cat([torch.from_numpy(Vt_q.T)[:prot_means.shape[1]],
+        self.decoder.model.weight.data.copy_(torch.cat([torch.from_numpy(Vt_q.T)[:prot_means.shape[1]].to(self.decoder.model.weight.data.device),
                                                         cov_dec_init], axis=1) )
         self.decoder.model.bias.data.copy_( torch.from_numpy( prot_means).squeeze(0))
 
