@@ -118,7 +118,7 @@ def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3,
                 min_val_loss = val_loss
                 best_model_wts = copy.deepcopy(model.state_dict())
                 early_stopping_counter = 0
-                early_stopping_epoch = epoch
+                early_stopping_epoch = epoch + 1
             else:
                 early_stopping_counter += 1
                 if early_stopping_counter >= patience:
