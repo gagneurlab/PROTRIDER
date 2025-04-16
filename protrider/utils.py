@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .model import train, train_val, mse_masked, ProtriderAutoencoder
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
-from .stats import get_pvals, fit_residuals, get_pvals_cv
+from .stats import get_pvals, fit_residuals
 from .model_helper import find_latent_dim, init_model
 
 __all__ = ["ModelInfo", "Result", "run_experiment", "run_experiment_kfoldcv"]
@@ -38,9 +38,12 @@ class Result:
     df_pvals_adj: pd.DataFrame
     log2fc: np.ndarray
     fc: np.ndarray
+    n_out_median: int
+    n_out_max: int
+    n_out_total: int
 
 
-def run_experiment(input_intensities, config, sample_annotation, log_func, base_fn) -> Tuple[Result, ModelInfo]:
+def run_experiment(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[Result, ModelInfo]:
     """
     Perform protein outlier detection in a single run.
     Args:
@@ -49,6 +52,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
         sample_annotation:
         log_func:
         base_fn:
+        device:
 
     Returns:
 
@@ -61,7 +65,8 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                                sa_file=sample_annotation,
                                cov_used=config['cov_used'],
                                log_func=log_func,
-                               maxNA_filter=config['max_allowed_NAs_per_protein'])
+                               maxNA_filter=config['max_allowed_NAs_per_protein'],
+                               device=device)
 
     ## 2. Find latent dim
     print('=== Finding latent dimension ===')
@@ -79,7 +84,8 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                         batch_size=config['batch_size'],
                         pval_sided=config['pval_sided'],
                         pval_dist=config['pval_dist'],
-                        out_dir=config['out_dir']
+                        out_dir=config['out_dir'],
+                        device=device
                         )
     print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
 
@@ -87,9 +93,10 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     model = init_model(dataset, q,
                        init_wPCA=config['init_pca'],
                        n_layer=config['n_layers'],
-                       h_dim=config['h_dim']
+                       h_dim=config['h_dim'],
+                       device=device
                        )
-    print('\tModel:', model)
+    print('\tModel:', model, 'device:', device)
 
     ## 4. Compute initial MSE loss
     df_out, final_loss = _inference(dataset, model)
@@ -108,7 +115,12 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     ## 6. Compute residuals, pvals, zscores
     print('=== Computing statistics ===')
     df_res = dataset.data - df_out  # log data - pred data
+
+    mu, sigma, df0 = fit_residuals(df_res.values, dis=config['pval_dist'])
     pvals, Z, pvals_adj = get_pvals(df_res.values,
+                                    mu=mu,
+                                    sigma=sigma,
+                                    df0=df0,
                                     how=config['pval_sided'],
                                     dis=config['pval_dist'],
                                     padjust=config["pval_adj"])
@@ -119,7 +131,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     return result, model_info
 
 
-def run_experiment_loocv(input_intensities, config, sample_annotation, log_func, base_fn) -> Tuple[
+def run_experiment_loocv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[
     Result, ModelInfo, DataFrame]:
     """
     Perform protein outlier detection with cross-validation.
@@ -138,7 +150,8 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
     ## 1. Initialize cross validation generator
     print('=== Initializing cross validation ===')
     cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
-                                     config['max_allowed_NAs_per_protein'], log_func, seed=config['seed'], )
+                                     config['max_allowed_NAs_per_protein'], log_func, seed=config['seed'],
+                                     device=device)
     dataset = cv_gen.dataset
 
     # test results
@@ -176,15 +189,17 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
                             batch_size=config['batch_size'],
                             pval_sided=config['pval_sided'],
                             pval_dist=config['pval_dist'],
-                            out_dir=config['out_dir'])
+                            out_dir=config['out_dir'],
+                            device=device)
         print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
 
         ## 4. Init model with found latent dim
         model = init_model(pca_subset, q,
                            init_wPCA=config['init_pca'],
                            n_layer=config['n_layers'],
-                           h_dim=config['h_dim'])
-        print('\tModel:', model)
+                           h_dim=config['h_dim'],
+                           device=device)
+        print('\tModel:', model, 'device:', device)
 
         ## 5. Compute initial MSE loss
         df_out_train, train_loss = _inference(train_subset, model)
@@ -214,15 +229,15 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
         ## 7. Fit residual distribution on validation set
         print('=== Estimating residual distribution parameters on validation set ===')
         df_res_val = val_subset.data - df_out_val  # log data - pred data
-        dist_params = fit_residuals(df_res_val.values, dis=config['pval_dist'])
+        mu, sigma, df0 = fit_residuals(df_res_val.values, dis=config['pval_dist'])
 
         # 8. Compute pvals on test set
         print('=== Running model on test set ===')
         df_out_test, loss = _inference(test_subset, model)
         print(f'\tFold {fold} test loss: {train_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
-        pvals, Z, pvals_adj = get_pvals_cv(df_res_test.values, how=config['pval_sided'], padjust=config["pval_adj"],
-                                           dist_params=dist_params)
+        pvals, Z, pvals_adj = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0,
+                                        how=config['pval_sided'], padjust=config["pval_adj"])
         df_out_list.append(df_out_test)
         df_res_list.append(df_res_test)
         test_loss_list.append(loss)
@@ -248,7 +263,7 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
     return result, model_info, df_folds
 
 
-def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_func, base_fn) -> Tuple[
+def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[
     Result, ModelInfo, DataFrame]:
     """
     Perform protein outlier detection with cross-validation.
@@ -268,7 +283,7 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
     print('=== Initializing cross validation ===')
     cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
                                        config['max_allowed_NAs_per_protein'], log_func, num_folds=config['n_folds'],
-                                       seed=config['seed'], )
+                                       seed=config['seed'], device=device)
     dataset = cv_gen.dataset
 
     # test results
@@ -306,15 +321,17 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
                             batch_size=config['batch_size'],
                             pval_sided=config['pval_sided'],
                             pval_dist=config['pval_dist'],
-                            out_dir=config['out_dir'])
+                            out_dir=config['out_dir'],
+                            device=device)
         print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
 
         ## 4. Init model with found latent dim
         model = init_model(pca_subset, q,
                            init_wPCA=config['init_pca'],
                            n_layer=config['n_layers'],
-                           h_dim=config['h_dim'])
-        print('\tModel:', model)
+                           h_dim=config['h_dim'],
+                           device=device)
+        print('\tModel:', model, 'device:', device)
 
         ## 5. Compute initial MSE loss
         df_out_train, train_loss = _inference(train_subset, model)
@@ -344,15 +361,15 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
         ## 7. Fit residual distribution on validation set
         print('=== Estimating residual distribution parameters on validation set ===')
         df_res_val = val_subset.data - df_out_val  # log data - pred data
-        dist_params = fit_residuals(df_res_val.values, dis=config['pval_dist'])
+        mu, sigma, df0 = fit_residuals(df_res_val.values, dis=config['pval_dist'])
 
         # 8. Compute pvals on test set
         print('=== Running model on test set ===')
         df_out_test, loss = _inference(test_subset, model)
         print(f'\tFold {fold} test loss: {train_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
-        pvals, Z, pvals_adj = get_pvals_cv(df_res_test.values, how=config['pval_sided'], padjust=config["pval_adj"],
-                                           dist_params=dist_params)
+        pvals, Z, pvals_adj = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0,
+                                        how=config['pval_sided'], padjust=config["pval_adj"])
         df_out_list.append(df_out_test)
         df_res_list.append(df_res_test)
         test_loss_list.append(loss)
@@ -401,9 +418,9 @@ def _plot_loss_history(train_losses, val_losses, fold, out_dir):
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder):
     X_out = model(dataset.X,
                   prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
-    loss = mse_masked(dataset.X, X_out, dataset.torch_mask).detach().numpy()
+    loss = mse_masked(dataset.X, X_out, dataset.torch_mask).detach().cpu().numpy()
 
-    df_out = pd.DataFrame(X_out.detach().numpy())
+    df_out = pd.DataFrame(X_out.detach().cpu().numpy())
     df_out.columns = dataset.data.columns
     df_out.index = dataset.data.index
 
@@ -430,9 +447,15 @@ def _format_results(df_out, df_res, pvals, Z, pvals_adj, dataset, pseudocount, o
     fc = (base_fn(dataset.data) + pseudocount) / (base_fn(df_out) + pseudocount)
 
     outs_per_sample = np.sum(df_pvals_adj.values <= outlier_threshold, axis=1)
+    n_out_median = np.nanmedian(outs_per_sample)
+    n_out_max = np.nanmax(outs_per_sample)
+    n_out_total = np.nansum(outs_per_sample)
+    print(f'\tFinished computing pvalues. No. outliers per sample in median: {n_out_median}')
+    print(f'\t {sorted(outs_per_sample)}')
 
     print(f'\tFinished computing pvalues. No. outliers per sample in median: {np.nanmedian(outs_per_sample)}')
     print(f'\t {sorted(outs_per_sample)}')
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_pvals=df_pvals, df_Z=df_Z,
-                  df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc)
+                  df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,
+                  n_out_total=n_out_total)

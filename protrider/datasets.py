@@ -148,7 +148,6 @@ class ProtriderDataset(Dataset, PCADataset):
         self.cov_one_hot = self.cov_one_hot.to(device)
         self.prot_means_torch = self.prot_means_torch.to(device)
 
-    
     def __len__(self):
         return len(self.X)
 
@@ -211,7 +210,7 @@ class ProtriderLOOCVGenerator:
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float, log_func: Callable[[ArrayLike], ArrayLike],
-                 seed: int = 42):
+                 seed: int = 42, device=torch.device('cpu')):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -237,7 +236,7 @@ class ProtriderLOOCVGenerator:
                                         sa_file=sample_annotation,
                                         cov_used=cov_used,
                                         log_func=log_func,
-                                        maxNA_filter=maxNA_filter)
+                                        maxNA_filter=maxNA_filter, device=device)
 
         # Set up LOO
         self.loo = LeaveOneOut()
@@ -275,7 +274,8 @@ class ProtriderKfoldCVGenerator:
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float,
-                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, seed: int = 42):
+                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, seed: int = 42,
+                 device=torch.device('cpu')):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -302,7 +302,8 @@ class ProtriderKfoldCVGenerator:
                                         sa_file=sample_annotation,
                                         cov_used=cov_used,
                                         log_func=log_func,
-                                        maxNA_filter=maxNA_filter)
+                                        maxNA_filter=maxNA_filter,
+                                        device=device)
 
         # Set up KFold
         self.kf = KFold(n_splits=num_folds, shuffle=True, random_state=seed)

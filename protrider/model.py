@@ -109,7 +109,7 @@ def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3,
         if epoch % val_every_nepochs == 0:
             train_losses.append(train_loss)
             x_hat_val = model(val_subset.X, prot_means=val_subset.prot_means_torch, cond=val_subset.cov_one_hot)
-            val_loss = mse_masked(val_subset.X, x_hat_val, val_subset.torch_mask).detach().numpy()
+            val_loss = mse_masked(val_subset.X, x_hat_val, val_subset.torch_mask).detach().cpu().numpy()
             val_losses.append(val_loss)
             print('[%d] train loss: %.6f' % (epoch + 1, train_loss))
             print('[%d] validation loss: %.6f' % (epoch + 1, val_loss))

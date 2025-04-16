@@ -4,14 +4,12 @@ import pandas as pd
 from sklearn.metrics import precision_recall_curve, auc
 import torch
 import copy
-from typing import Union
-from optht import optht
 
-from .stats import get_pvals
+from .stats import get_pvals, fit_residuals
 from .model import ProtriderAutoencoder, train, mse_masked
-from .datasets import ProtriderSubset, ProtriderDataset
 
 __all__ = ['init_model', 'find_latent_dim']
+
 
 def find_latent_dim(dataset, method='OHT',
                     inj_freq=1e-3, inj_mean=3, inj_sd=1.6, seed=None,
@@ -34,14 +32,14 @@ def find_latent_dim(dataset, method='OHT',
         gridSearch_results = []
         for latent_dim in possible_qs:
             print(f"--- Testing q = {latent_dim} ---")
-            model = _init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device)
-            X_init = model(injected_dataset.X, 
+            model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device)
+            X_init = model(injected_dataset.X,
                            prot_means=injected_dataset.prot_means_torch,
                            cond=injected_dataset.cov_one_hot)
             final_loss = mse_masked(injected_dataset.X, X_init,
                                     injected_dataset.torch_mask).detach().cpu().numpy()
-            print('\tInitial loss after model init: ', final_loss )
-            
+            print('\tInitial loss after model init: ', final_loss)
+
             print('\t--- Fitting model ---')
             final_loss = train(injected_dataset, model,
                                n_epochs, learning_rate, batch_size)
@@ -56,11 +54,14 @@ def find_latent_dim(dataset, method='OHT',
             else:
                 X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
                 X_in[injected_dataset.mask] = np.nan
-                pvals, _, _, _ = get_pvals(X_in - X_out,
-                                     how=pval_sided, 
-                                     dis='gaussian',
-                                     padjust=None
-                                    )
+                res = X_in - X_out
+                mu, sigma, df0 = fit_residuals(X_in - X_out, dis='gaussian')
+                pvals, _, _ = get_pvals(res,
+                                           mu=mu, sigma=sigma, df0=df0,
+                                           how=pval_sided,
+                                           dis='gaussian',
+                                           padjust=None
+                                           )
                 auprc = _get_prec_recall(pvals, outlier_mask)
                 print(f"\t==> q = {latent_dim}: AUCPR = {auprc}")
                 gridSearch_results.append([latent_dim, auprc])
@@ -77,16 +78,16 @@ def find_latent_dim(dataset, method='OHT',
     return q
 
 
-def _init_model(dataset, latent_dim, init_wPCA = True, n_layer=1, h_dim=None,
+def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None,
                device=torch.device('cpu')):
     n_cov = dataset.cov_one_hot.shape[1]
     n_prots = dataset.X.shape[1]
     model = ProtriderAutoencoder(in_dim=n_prots, latent_dim=latent_dim,
                                  n_layers=n_layer, h_dim=h_dim,
                                  n_cov=n_cov
-                                )
+                                 )
     model.double().to(device)
-    
+
     if init_wPCA:
         print('\tInitializing model weights with PCA')
         dataset.perform_svd()
@@ -108,9 +109,8 @@ def _rlnorm(size, inj_mean, inj_sd):
     log_mean = np.log(inj_mean) if inj_mean != 0 else 0
     return np.random.lognormal(mean=log_mean, sigma=np.log(inj_sd), size=size)
 
-    
-def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, seed=None, device=torch.device('cpu')):
 
+def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, seed=None, device=torch.device('cpu')):
     max_outlier_value = np.nanmin([100 * np.nanmax(dataset.X.detach().cpu().numpy()),
                                    torch.finfo(dataset.X.dtype).max])
     print('max value', max_outlier_value)
@@ -127,11 +127,11 @@ def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, seed=None, 
     # insert with log normally distributed zscore in transformed space
     inj_zscores = _rlnorm(size=dataset.X.shape, inj_mean=inj_mean, inj_sd=inj_sd)
     sd = np.nanstd(X_trans.detach().cpu(), ddof=1, axis=0)
-    #sd = torch.nanstd(X_trans, dim=0, unbiased=True)
+    # sd = torch.nanstd(X_trans, dim=0, unbiased=True)
 
     # reverse transform to original space
     X_injected = torch.tensor(outlier_mask * inj_zscores * sd).to(device) + dataset.X
-    
+
     # avoid inj outlier to be too strong
     cond = X_injected > max_outlier_value
     X_injected[cond] = dataset.X[cond]
@@ -144,12 +144,12 @@ def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, seed=None, 
     print(f"Injecting {nr_out} outliers (freq = {nr_out / dataset.X.nelement()})")
 
     ds_injected = copy.deepcopy(dataset)
-    #ds_injected.X = X_injected # why not just this?
+    # ds_injected.X = X_injected # why not just this?
     ds_injected.X = torch.where(dataset.torch_mask, dataset.X, X_injected).to(device)
     ds_injected.prot_means = np.nanmean(ds_injected.X.detach().cpu(), axis=0, keepdims=1)
 
     ## PCA should be computed on ds_injected.X - prot_means
-    ds_injected.centered_log_data_noNA  = ds_injected.X.detach().cpu().numpy() - ds_injected.prot_means
+    ds_injected.centered_log_data_noNA = ds_injected.X.detach().cpu().numpy() - ds_injected.prot_means
     return ds_injected, outlier_mask
 
 
