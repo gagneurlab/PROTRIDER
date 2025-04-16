@@ -89,7 +89,7 @@ def mse_masked(x_hat, x, mask):
 
 
 def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1, batch_size=None,
-              patience=100, min_delta=0.001):
+              patience=100, min_delta=0.001, verbose=False):
     # start data;pader
     if batch_size is None:
         batch_size = train_subset.X.shape[0]
@@ -111,8 +111,9 @@ def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3,
             x_hat_val = model(val_subset.X, prot_means=val_subset.prot_means_torch, cond=val_subset.cov_one_hot)
             val_loss = mse_masked(val_subset.X, x_hat_val, val_subset.torch_mask).detach().cpu().numpy()
             val_losses.append(val_loss)
-            print('[%d] train loss: %.6f' % (epoch + 1, train_loss))
-            print('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
+            if verbose:
+                print('[%d] train loss: %.6f' % (epoch + 1, train_loss))
+                print('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
 
             if min_val_loss - val_loss > min_delta:
                 min_val_loss = val_loss

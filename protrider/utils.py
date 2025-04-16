@@ -108,7 +108,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
               n_epochs=config['n_epochs'],
               learning_rate=float(config['lr']),
               batch_size=config['batch_size'],
-              )  # .detach().numpy()
+              verbose=config['verbose'], )
         df_out, final_loss = _inference(dataset, model)
         print('Final loss:', final_loss)
 
@@ -216,8 +216,8 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
                                                  learning_rate=float(config['lr']),
                                                  batch_size=config['batch_size'],
                                                  patience=config['early_stopping_patience'],
-                                                 min_delta=config['early_stopping_min_delta']
-                                                 )
+                                                 min_delta=config['early_stopping_min_delta'],
+                                                 verbose=config['verbose'])
             train_loss_list.append(train_losses)
             val_loss_list.append(val_losses)
             df_out_train, train_loss = _inference(train_subset, model)
@@ -348,7 +348,8 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
                                                  learning_rate=float(config['lr']),
                                                  batch_size=config['batch_size'],
                                                  patience=config['early_stopping_patience'],
-                                                 min_delta=config['early_stopping_min_delta']
+                                                 min_delta=config['early_stopping_min_delta'],
+                                                 verbose=config['verbose']
                                                  )
             train_loss_list.append(train_losses)
             val_loss_list.append(val_losses)

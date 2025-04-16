@@ -11,6 +11,7 @@ import copy
 from pydeseq2.preprocessing import deseq2_norm
 from abc import ABC
 from optht import optht
+from tqdm import tqdm
 
 
 class PCADataset(ABC):
@@ -243,7 +244,7 @@ class ProtriderLOOCVGenerator:
 
     def __iter__(self):
         """Generate train, validation, and test subsets for each fold"""
-        for train_val_idx, test_idx in self.loo.split(self.dataset):
+        for train_val_idx, test_idx in tqdm(self.loo.split(self.dataset), total=len(self.dataset)):
             print(f"Test: {test_idx}, Train+Val: {train_val_idx}")
 
             # Further split train_val into train / val
@@ -312,7 +313,7 @@ class ProtriderKfoldCVGenerator:
         self._folds = list(self.kf.split(self.dataset))
 
     def __iter__(self):
-        for run_idx in range(self.num_folds):
+        for run_idx in tqdm(range(self.num_folds)):
             test_idx = run_idx
             pca_idx = (run_idx + 1) % self.num_folds
             val_idx = (run_idx + 2) % self.num_folds
