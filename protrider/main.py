@@ -8,7 +8,7 @@ from pandas import DataFrame
 import torch
 import logging
 
-from .utils import Result, ModelInfo, run_experiment, run_experiment_kfoldcv, run_experiment_loocv
+from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +88,8 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
     if config.get('cross_val', False):
         if config['find_q_method'] != 'OHT':
             raise ValueError('Cross-validation only implemented with OHT method')
-        if config.get('n_folds', None) is not None:
-            result, model_info, df_folds = run_experiment_kfoldcv(input_intensities, config, sample_annotation,
-                                                                  log_func, base_fn, device=device)
-        else:
-            result, model_info, df_folds = run_experiment_loocv(input_intensities, config, sample_annotation,
-                                                                log_func, base_fn, device=device)
+        result, model_info, df_folds = run_experiment_cv(input_intensities, config, sample_annotation,
+                                                         log_func, base_fn, device=device)
     else:
         result, model_info, = run_experiment(input_intensities, config, sample_annotation, log_func, base_fn,
                                              device=device)
@@ -181,24 +177,6 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
         out_p = f'{out_dir}/folds.csv'
         df_folds.to_csv(out_p, header=True, index=True)
         logger.info(f"Saved folds to {out_p}")
-
-    # loss history
-    if model_info.train_loss_history is not None:
-        out_p = f'{out_dir}/loss_history.csv'
-        train_loss_history = model_info.train_loss_history
-        val_loss_history = model_info.val_loss_history
-        loss_history_dfs = []
-        for fold, train_loss_per_epoch in enumerate(train_loss_history):
-            _df = pd.DataFrame(
-                dict(fold=fold, type='train', loss=train_loss_per_epoch, epoch=np.arange(len(train_loss_per_epoch))))
-            loss_history_dfs.append(_df)
-        for fold, val_loss_per_epoch in enumerate(val_loss_history):
-            _df = pd.DataFrame(
-                dict(fold=fold, type='validation', loss=val_loss_per_epoch, epoch=np.arange(len(val_loss_per_epoch))))
-            loss_history_dfs.append(_df)
-        loss_history_df = pd.concat(loss_history_dfs)
-        loss_history_df.to_csv(out_p, header=True, index=False)
-        logger.info(f"Saved loss history to {out_p}")
 
     out_p = f'{out_dir}/protrider_summary.csv'
     summary.to_csv(out_p, index=None)

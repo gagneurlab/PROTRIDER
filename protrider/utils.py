@@ -14,7 +14,7 @@ from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerat
 from .stats import get_pvals, fit_residuals, adjust_pvals
 from .model_helper import find_latent_dim, init_model
 
-__all__ = ["ModelInfo", "Result", "run_experiment", "run_experiment_kfoldcv"]
+__all__ = ["ModelInfo", "Result", "run_experiment", "run_experiment_cv"]
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,6 @@ class ModelInfo:
     learning_rate: np.array
     n_epochs: np.array
     test_loss: np.array
-    train_loss_history: List[np.array] = None
-    val_loss_history: List[np.array] = None
 
 
 @dataclass
@@ -132,45 +130,48 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     model_info = ModelInfo(q=q, learning_rate=config['lr'], n_epochs=config['n_epochs'], test_loss=final_loss)
     return result, model_info
 
-
-def run_experiment_loocv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[
-    Result, ModelInfo, DataFrame]:
+def run_experiment_cv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[Result, ModelInfo, DataFrame]:
     """
     Perform protein outlier detection with cross-validation.
     Args:
-        nfold_to_run:
         input_intensities:
         config:
         sample_annotation:
         log_func:
         base_fn:
+        device:
 
     Returns:
 
     """
-
-    # todo temp
-    fit_every_fold = False
+    # If fit_every_fold is set to True, the model will estimate the residual distribution parameters on every fold
+    # using the train-val set.
+    # If set to False, the model will estimate the residual distribution parameters on the final test residuals
+    fit_every_fold = config.get('fit_every_fold', False)
 
     ## 1. Initialize cross validation generator
     logger.info('Initializing cross validation')
-    cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
-                                     config['max_allowed_NAs_per_protein'], log_func, device=device)
+    if config.get('n_folds', None) is not None:
+        cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'],
+                                           config['cov_used'],
+                                           config['max_allowed_NAs_per_protein'], log_func, num_folds=config['n_folds'],
+                                           device=device)
+    else:
+        cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
+                                         config['max_allowed_NAs_per_protein'], log_func, device=device)
     dataset = cv_gen.dataset
 
     # test results
     pvals_list = []
     Z_list = []
-    pvals_adj_list = []
     df_out_list = []
     df_res_list = []
     test_loss_list = []
-    train_loss_list = []
-    val_loss_list = []
     q_list = []
     folds_list = []
     ## 2. Loop over folds
     for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
+
         logger.info(f'Fold {fold}')
         logger.info(f'Train subset size: {len(train_subset)}')
         logger.info(f'Validation subset size: {len(val_subset)}')
@@ -222,8 +223,6 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
                                                  batch_size=config['batch_size'],
                                                  patience=config['early_stopping_patience'],
                                                  min_delta=config['early_stopping_min_delta'])
-            train_loss_list.append(train_losses)
-            val_loss_list.append(val_losses)
             _plot_loss_history(train_losses, val_losses, fold, config['out_dir'])
 
         df_out_train, train_loss = _inference(train_subset, model)
@@ -237,6 +236,12 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
         logger.info(f'Fold {fold} test loss: {test_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
 
+        df_out_list.append(df_out_test)
+        df_res_list.append(df_res_test)
+        test_loss_list.append(test_loss)
+        q_list.append(q)
+        folds_list.extend([fold]*len(df_out_test))
+
         if fit_every_fold:
             # 8. Fit residual distribution on train-val set
             logger.info('Estimating residual distribution parameters on train-val set')
@@ -246,12 +251,6 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
             pvals, Z = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0, how=config['pval_sided'])
             pvals_list.append(pvals)
             Z_list.append(Z)
-
-        df_out_list.append(df_out_test)
-        df_res_list.append(df_res_test)
-        test_loss_list.append(test_loss)
-        q_list.append(q)
-        folds_list.extend([fold])
 
     df_res = pd.concat(df_res_list)
     df_out = pd.concat(df_out_list)
@@ -272,141 +271,7 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
                              Z=Z, pvals_adj=pvals_adj, pseudocount=config['pseudocount'],
                              outlier_threshold=config['outlier_threshold'], base_fn=base_fn)
     model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config['lr']),
-                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(test_loss_list),
-                           train_loss_history=train_loss_list, val_loss_history=val_loss_list)
-    return result, model_info, df_folds
-
-
-def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[
-    Result, ModelInfo, DataFrame]:
-    """
-    Perform protein outlier detection with cross-validation.
-    Args:
-        nfold_to_run:
-        input_intensities:
-        config:
-        sample_annotation:
-        log_func:
-        base_fn:
-
-    Returns:
-
-    """
-
-    ## 1. Initialize cross validation generator
-    logger.info('Initializing cross validation')
-    cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
-                                       config['max_allowed_NAs_per_protein'], log_func, num_folds=config['n_folds'],
-                                       device=device)
-    dataset = cv_gen.dataset
-
-    # test results
-    pvals_list = []
-    Z_list = []
-    pvals_adj_list = []
-    df_out_list = []
-    df_res_list = []
-    test_loss_list = []
-    train_loss_list = []
-    val_loss_list = []
-    q_list = []
-    folds_list = []
-    ## 2. Loop over folds
-    for fold, (pca_subset, train_subset, val_subset, test_subset) in enumerate(cv_gen):
-        logger.info(f'Fold {fold}')
-        logger.info(f'PCA subset size: {len(pca_subset)}')
-        logger.info(f'Train subset size: {len(train_subset)}')
-        logger.info(f'Validation subset size: {len(val_subset)}')
-        logger.info(f'Test subset size: {len(test_subset)}')
-
-        ## 3. Find latent dim
-        logger.info('Finding latent dimension')
-        q = find_latent_dim(pca_subset, method=config['find_q_method'],
-                            ### Params for grid search method
-                            inj_freq=float(config['inj_freq']),
-                            inj_mean=config['inj_mean'],
-                            inj_sd=config['inj_sd'],
-                            init_wPCA=config['init_pca'],
-                            n_layers=config['n_layers'],
-                            h_dim=config['h_dim'],
-                            n_epochs=config['n_epochs'],
-                            learning_rate=float(config['lr']),
-                            batch_size=config['batch_size'],
-                            pval_sided=config['pval_sided'],
-                            pval_dist=config['pval_dist'],
-                            out_dir=config['out_dir'],
-                            device=device)
-        logger.info(f'Latent dimension found with method {config["find_q_method"]}: {q}')
-
-        ## 4. Init model with found latent dim
-        model = init_model(pca_subset, q,
-                           init_wPCA=config['init_pca'],
-                           n_layer=config['n_layers'],
-                           h_dim=config['h_dim'],
-                           device=device)
-
-        logger.info('Model:\n%s', model)
-        logger.info('Device: %s', device)
-
-        ## 5. Compute initial MSE loss
-        df_out_train, train_loss = _inference(train_subset, model)
-        df_out_val, val_loss = _inference(val_subset, model)
-        logger.info(f'Train loss after model init: {train_loss}')
-        logger.info(f'Validation loss after model init: {val_loss}')
-        if config['autoencoder_training']:
-            logger.info('Fitting model')
-            ## 6. Train model
-            # todo train validate (hyperparameter tuning)
-            # todo pass validation set as well
-            train_losses, val_losses = train_val(train_subset, val_subset, model,
-                                                 n_epochs=config['n_epochs'],
-                                                 learning_rate=float(config['lr']),
-                                                 batch_size=config['batch_size'],
-                                                 patience=config['early_stopping_patience'],
-                                                 min_delta=config['early_stopping_min_delta'])
-            train_loss_list.append(train_losses)
-            val_loss_list.append(val_losses)
-            logger.info(f'Fold {fold} train loss: {train_loss}')
-            logger.info(f'Fold {fold} validation loss: {val_loss}')
-            _plot_loss_history(train_losses, val_losses, fold, config['out_dir'])
-
-        df_out_train, train_loss = _inference(train_subset, model)
-        df_out_val, val_loss = _inference(val_subset, model)
-        ## 7. Fit residual distribution on validation set
-        logger.info('Estimating residual distribution parameters on validation set')
-        df_res_val = val_subset.data - df_out_val  # log data - pred data
-        mu, sigma, df0 = fit_residuals(df_res_val.values, dis=config['pval_dist'])
-
-        # 8. Compute pvals on test set
-        logger.info('Running model on test set')
-        df_out_test, loss = _inference(test_subset, model)
-        logger.info(f'Fold {fold} test loss: {train_loss}')
-        df_res_test = test_subset.data - df_out_test  # log data - pred data
-        pvals, Z = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0,
-                             how=config['pval_sided'])
-        pvals_adj = adjust_pvals(pvals, method=config["pval_adj"])
-        df_out_list.append(df_out_test)
-        df_res_list.append(df_res_test)
-        test_loss_list.append(loss)
-        q_list.append(q)
-        pvals_list.append(pvals)
-        Z_list.append(Z)
-        pvals_adj_list.append(pvals_adj)
-        folds_list.extend([fold] * len(pvals))
-
-    pvals = np.concatenate(pvals_list)
-    Z = np.concatenate(Z_list)
-    pvals_adj = np.concatenate(pvals_adj_list)
-    df_out = pd.concat(df_out_list)
-    df_res = pd.concat(df_res_list)
-    df_folds = pd.DataFrame({'fold': folds_list, }, index=df_out.index)
-
-    result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals,
-                             Z=Z, pvals_adj=pvals_adj, pseudocount=config['pseudocount'],
-                             outlier_threshold=config['outlier_threshold'], base_fn=base_fn)
-    model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config['lr']),
-                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(test_loss_list),
-                           train_loss_history=train_loss_list, val_loss_history=val_loss_list)
+                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(test_loss_list))
     return result, model_info, df_folds
 
 
