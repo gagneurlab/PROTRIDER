@@ -1,4 +1,6 @@
 import dataclasses
+from collections import defaultdict
+
 import numpy as np
 import pandas as pd
 import yaml
@@ -31,7 +33,12 @@ logger = logging.getLogger(__name__)
     help="csv file containing sample annotations",
     type=click.Path(exists=True, dir_okay=False),
 )
-def main(config, input_intensities: str, sample_annotation: str = None) -> None:
+@click.option(
+    "--out_dir",
+    help="Output directory to save results",
+    type=click.Path(exists=False, dir_okay=True, file_okay=False),
+)
+def main(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -52,6 +59,11 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
 
     logger.info('Starting protrider')
     logger.info("Config:\n%s", yaml.dump(config, default_flow_style=False))
+
+    config = defaultdict(lambda: None, config)
+
+    if out_dir is not None:
+        config['out_dir'] = out_dir
 
     if config['out_dir'] is not None:
         path = Path(config['out_dir'])
@@ -152,7 +164,7 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
     # config
     out_p = f'{out_dir}/config.yaml'
     with open(out_p, 'w') as f:
-        yaml.safe_dump(config, f)
+        yaml.safe_dump(dict(config), f)
     logger.info(f"Saved run config to {out_p}")
 
     # latent space

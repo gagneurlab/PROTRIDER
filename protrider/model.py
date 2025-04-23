@@ -21,7 +21,7 @@ class ConditionalEnDecoder(nn.Module):
         last_layer = None
         if n_layers == 1:
             # if the model is a decoder, then we want to have trainable bias
-            last_layer = nn.Linear(in_dim, out_dim, bias=not is_encoder)
+            last_layer = nn.Linear(in_dim, out_dim, bias=not is_encoder or prot_means is None)
             self.model = last_layer
         elif n_layers > 1:
             modules = []
@@ -31,7 +31,7 @@ class ConditionalEnDecoder(nn.Module):
                 modules.append(nn.Linear(h_dim, h_dim, bias=False))
                 modules.append(nn.ReLU())
             # if the model is a decoder, then we want to have trainable bias
-            last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder)
+            last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder or prot_means is None)
             modules.append(last_layer)
             self.model = nn.Sequential(*modules)
 

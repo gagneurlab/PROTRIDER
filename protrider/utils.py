@@ -73,14 +73,14 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     logger.info('Finding latent dimension')
     q = find_latent_dim(dataset, method=config['find_q_method'],
                         ### Params for grid search method
-                        inj_freq=float(config['inj_freq']),
+                        inj_freq=config['inj_freq'],
                         inj_mean=config['inj_mean'],
                         inj_sd=config['inj_sd'],
                         init_wPCA=config['init_pca'],
                         n_layers=config['n_layers'],
                         h_dim=config['h_dim'],
                         n_epochs=config['n_epochs'],
-                        learning_rate=float(config['lr']),
+                        learning_rate=config['lr'],
                         batch_size=config['batch_size'],
                         pval_sided=config['pval_sided'],
                         pval_dist=config['pval_dist'],
@@ -130,7 +130,9 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     model_info = ModelInfo(q=q, learning_rate=config['lr'], n_epochs=config['n_epochs'], test_loss=final_loss)
     return result, model_info
 
-def run_experiment_cv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[Result, ModelInfo, DataFrame]:
+
+def run_experiment_cv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[
+    Result, ModelInfo, DataFrame]:
     """
     Perform protein outlier detection with cross-validation.
     Args:
@@ -153,9 +155,8 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
     logger.info('Initializing cross validation')
     if config.get('n_folds', None) is not None:
         cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'],
-                                           config['cov_used'],
-                                           config['max_allowed_NAs_per_protein'], log_func, num_folds=config['n_folds'],
-                                           device=device)
+                                           config['cov_used'], config['max_allowed_NAs_per_protein'], log_func,
+                                           num_folds=config['n_folds'], device=device)
     else:
         cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
                                          config['max_allowed_NAs_per_protein'], log_func, device=device)
@@ -182,14 +183,14 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
         pca_subset = ProtriderSubset.concat([train_subset, val_subset])
         q = find_latent_dim(pca_subset, method=config['find_q_method'],
                             ### Params for grid search method
-                            inj_freq=float(config['inj_freq']),
+                            inj_freq=config['inj_freq'],
                             inj_mean=config['inj_mean'],
                             inj_sd=config['inj_sd'],
                             init_wPCA=config['init_pca'],
                             n_layers=config['n_layers'],
                             h_dim=config['h_dim'],
                             n_epochs=config['n_epochs'],
-                            learning_rate=float(config['lr']),
+                            learning_rate=config['lr'],
                             batch_size=config['batch_size'],
                             pval_sided=config['pval_sided'],
                             pval_dist=config['pval_dist'],
@@ -221,8 +222,8 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
                                                  n_epochs=config['n_epochs'],
                                                  learning_rate=float(config['lr']),
                                                  batch_size=config['batch_size'],
-                                                 patience=config['early_stopping_patience'],
-                                                 min_delta=config['early_stopping_min_delta'])
+                                                 patience=config.get('early_stopping_patience', 50),
+                                                 min_delta=config.get('early_stopping_min_delta', 0.0001))
             _plot_loss_history(train_losses, val_losses, fold, config['out_dir'])
 
         df_out_train, train_loss = _inference(train_subset, model)
@@ -240,7 +241,7 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
         df_res_list.append(df_res_test)
         test_loss_list.append(test_loss)
         q_list.append(q)
-        folds_list.extend([fold]*len(df_out_test))
+        folds_list.extend([fold] * len(df_out_test))
 
         if fit_every_fold:
             # 8. Fit residual distribution on train-val set

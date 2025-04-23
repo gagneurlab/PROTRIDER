@@ -213,7 +213,7 @@ class ProtriderCVGenerator(ABC):
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float,
-                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, device=torch.device('cpu')):
+                 log_func: Callable[[ArrayLike], ArrayLike], device=torch.device('cpu')):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -229,7 +229,6 @@ class ProtriderCVGenerator(ABC):
         self.cov_used = cov_used
         self.maxNA_filter = maxNA_filter
         self.log_func = log_func
-        self.num_folds = num_folds
 
         # Initialize the dataset
         self.dataset = ProtriderDataset(csv_file=input_intensities,

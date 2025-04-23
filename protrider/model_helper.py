@@ -28,6 +28,8 @@ def find_latent_dim(dataset, method='OHT',
     else:
         logger.info('Grid search method for finding latent dim')
         logger.info('Injecting outliers')
+        inj_freq = float(inj_freq)
+        learning_rate = float(learning_rate)
         injected_dataset, outlier_mask = _inject_outliers(dataset, inj_freq, inj_mean, inj_sd, device=device)
 
         possible_qs = _get_gs_params(dataset.X.shape)
