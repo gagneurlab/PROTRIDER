@@ -7,13 +7,16 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+import logging
 
 from .model import train, train_val, mse_masked, ProtriderAutoencoder
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
-from .stats import get_pvals, fit_residuals
+from .stats import get_pvals, fit_residuals, adjust_pvals
 from .model_helper import find_latent_dim, init_model
 
 __all__ = ["ModelInfo", "Result", "run_experiment", "run_experiment_kfoldcv"]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -59,7 +62,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     """
 
     ## 1. Initialize dataset
-    print('=== Initializing dataset ===')
+    logger.info('Initializing dataset')
     dataset = ProtriderDataset(csv_file=input_intensities,
                                index_col=config['index_col'],
                                sa_file=sample_annotation,
@@ -69,13 +72,12 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                                device=device)
 
     ## 2. Find latent dim
-    print('=== Finding latent dimension ===')
+    logger.info('Finding latent dimension')
     q = find_latent_dim(dataset, method=config['find_q_method'],
                         ### Params for grid search method
                         inj_freq=float(config['inj_freq']),
                         inj_mean=config['inj_mean'],
                         inj_sd=config['inj_sd'],
-                        seed=config['seed'],
                         init_wPCA=config['init_pca'],
                         n_layers=config['n_layers'],
                         h_dim=config['h_dim'],
@@ -87,7 +89,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                         out_dir=config['out_dir'],
                         device=device
                         )
-    print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
+    logger.info(f'Latent dimension found with method {config["find_q_method"]}: {q}')
 
     ## 3. Init model with found latent dim
     model = init_model(dataset, q,
@@ -96,34 +98,34 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                        h_dim=config['h_dim'],
                        device=device
                        )
-    print('\tModel:', model, 'device:', device)
+    logger.info('Model:\n%s', model)
+    logger.info('Device: %s', device)
 
     ## 4. Compute initial MSE loss
     df_out, final_loss = _inference(dataset, model)
-    print('\tInitial loss after model init: ', final_loss)
+    logger.info('Initial loss after model init: %s', final_loss)
     if config['autoencoder_training']:
-        print('=== Fitting model ===')
+        logger.info('Fitting model')
         ## 5. Train model
         train(dataset, model,
               n_epochs=config['n_epochs'],
               learning_rate=float(config['lr']),
-              batch_size=config['batch_size'],
-              verbose=config['verbose'], )
+              batch_size=config['batch_size'], )
         df_out, final_loss = _inference(dataset, model)
-        print('Final loss:', final_loss)
+        logger.info('Final loss: %s', final_loss)
 
     ## 6. Compute residuals, pvals, zscores
-    print('=== Computing statistics ===')
+    logger.info('Computing statistics')
     df_res = dataset.data - df_out  # log data - pred data
 
     mu, sigma, df0 = fit_residuals(df_res.values, dis=config['pval_dist'])
-    pvals, Z, pvals_adj = get_pvals(df_res.values,
-                                    mu=mu,
-                                    sigma=sigma,
-                                    df0=df0,
-                                    how=config['pval_sided'],
-                                    dis=config['pval_dist'],
-                                    padjust=config["pval_adj"])
+    pvals, Z = get_pvals(df_res.values,
+                         mu=mu,
+                         sigma=sigma,
+                         df0=df0,
+                         how=config['pval_sided'],
+                         dis=config['pval_dist'])
+    pvals_adj = adjust_pvals(pvals, method=config["pval_adj"])
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals, Z=Z, pvals_adj=pvals_adj,
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
@@ -147,11 +149,13 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
 
     """
 
+    # todo temp
+    fit_every_fold = False
+
     ## 1. Initialize cross validation generator
-    print('=== Initializing cross validation ===')
+    logger.info('Initializing cross validation')
     cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
-                                     config['max_allowed_NAs_per_protein'], log_func, seed=config['seed'],
-                                     device=device)
+                                     config['max_allowed_NAs_per_protein'], log_func, device=device)
     dataset = cv_gen.dataset
 
     # test results
@@ -167,20 +171,19 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
     folds_list = []
     ## 2. Loop over folds
     for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
-        print(f'=== Fold {fold} ===')
-        print(f'\tTrain subset size: {len(train_subset)}')
-        print(f'\tValidation subset size: {len(val_subset)}')
-        print(f'\tTest subset size: {len(test_subset)}')
+        logger.info(f'Fold {fold}')
+        logger.info(f'Train subset size: {len(train_subset)}')
+        logger.info(f'Validation subset size: {len(val_subset)}')
+        logger.info(f'Test subset size: {len(test_subset)}')
 
         ## 3. Find latent dim
-        print('=== Finding latent dimension ===')
+        logger.info('Finding latent dimension')
         pca_subset = ProtriderSubset.concat([train_subset, val_subset])
         q = find_latent_dim(pca_subset, method=config['find_q_method'],
                             ### Params for grid search method
                             inj_freq=float(config['inj_freq']),
                             inj_mean=config['inj_mean'],
                             inj_sd=config['inj_sd'],
-                            seed=config['seed'],
                             init_wPCA=config['init_pca'],
                             n_layers=config['n_layers'],
                             h_dim=config['h_dim'],
@@ -191,23 +194,25 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
                             pval_dist=config['pval_dist'],
                             out_dir=config['out_dir'],
                             device=device)
-        print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
+        logger.info(f'Latent dimension found with method {config["find_q_method"]}: {q}')
 
         ## 4. Init model with found latent dim
-        model = init_model(pca_subset, q,
+        model = init_model(train_subset, q,
                            init_wPCA=config['init_pca'],
                            n_layer=config['n_layers'],
                            h_dim=config['h_dim'],
                            device=device)
-        print('\tModel:', model, 'device:', device)
+
+        logger.info('Model:\n%s', model)
+        logger.info('Device: %s', device)
 
         ## 5. Compute initial MSE loss
         df_out_train, train_loss = _inference(train_subset, model)
         df_out_val, val_loss = _inference(val_subset, model)
-        print(f'\tTrain loss after model init: {train_loss}')
-        print(f'\tValidation loss after model init: {val_loss}')
+        logger.info(f'Train loss after model init: {train_loss}')
+        logger.info(f'Validation loss after model init: {val_loss}')
         if config['autoencoder_training']:
-            print('=== Fitting model ===')
+            logger.info('Fitting model')
             ## 6. Train model
             # todo train validate (hyperparameter tuning)
             # todo pass validation set as well
@@ -216,44 +221,53 @@ def run_experiment_loocv(input_intensities, config, sample_annotation, log_func,
                                                  learning_rate=float(config['lr']),
                                                  batch_size=config['batch_size'],
                                                  patience=config['early_stopping_patience'],
-                                                 min_delta=config['early_stopping_min_delta'],
-                                                 verbose=config['verbose'])
+                                                 min_delta=config['early_stopping_min_delta'])
             train_loss_list.append(train_losses)
             val_loss_list.append(val_losses)
-            df_out_train, train_loss = _inference(train_subset, model)
-            df_out_val, val_loss = _inference(val_subset, model)
-            print(f'\tFold {fold} train loss: {train_loss}')
-            print(f'\tFold {fold} validation loss: {val_loss}')
             _plot_loss_history(train_losses, val_losses, fold, config['out_dir'])
 
-        ## 7. Fit residual distribution on validation set
-        print('=== Estimating residual distribution parameters on validation set ===')
-        df_res_val = val_subset.data - df_out_val  # log data - pred data
-        mu, sigma, df0 = fit_residuals(df_res_val.values, dis=config['pval_dist'])
+        df_out_train, train_loss = _inference(train_subset, model)
+        df_out_val, val_loss = _inference(val_subset, model)
+        logger.info(f'Fold {fold} train loss: {train_loss}')
+        logger.info(f'Fold {fold} validation loss: {val_loss}')
 
-        # 8. Compute pvals on test set
-        print('=== Running model on test set ===')
-        df_out_test, loss = _inference(test_subset, model)
-        print(f'\tFold {fold} test loss: {train_loss}')
+        # 7. Compute residuals on test set
+        logger.info('Running model on test set')
+        df_out_test, test_loss = _inference(test_subset, model)
+        logger.info(f'Fold {fold} test loss: {test_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
-        pvals, Z, pvals_adj = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0,
-                                        how=config['pval_sided'], padjust=config["pval_adj"])
+
+        if fit_every_fold:
+            # 8. Fit residual distribution on train-val set
+            logger.info('Estimating residual distribution parameters on train-val set')
+            df_res_val = val_subset.data - df_out_val  # log data - pred data
+            df_res_train = train_subset.data - df_out_train  # log data - pred data
+            mu, sigma, df0 = fit_residuals(pd.concat([df_res_train, df_res_val]).values, dis=config['pval_dist'])
+            pvals, Z = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0, how=config['pval_sided'])
+            pvals_list.append(pvals)
+            Z_list.append(Z)
+
         df_out_list.append(df_out_test)
         df_res_list.append(df_res_test)
-        test_loss_list.append(loss)
+        test_loss_list.append(test_loss)
         q_list.append(q)
-        pvals_list.append(pvals)
-        Z_list.append(Z)
-        pvals_adj_list.append(pvals_adj)
-        folds_list.extend([fold] * len(pvals))
+        folds_list.extend([fold])
 
-    pvals = np.concatenate(pvals_list)
-    Z = np.concatenate(Z_list)
-    pvals_adj = np.concatenate(pvals_adj_list)
-    df_out = pd.concat(df_out_list)
     df_res = pd.concat(df_res_list)
+    df_out = pd.concat(df_out_list)
     df_folds = pd.DataFrame({'fold': folds_list, }, index=df_out.index)
 
+    # Compute p-values on test set
+    if fit_every_fold:
+        pvals = np.concatenate(pvals_list)
+        Z = np.concatenate(Z_list)
+    else:
+        logger.info('Estimating residual distribution parameters')
+        mu, sigma, df0 = fit_residuals(df_res.values, dis=config['pval_dist'])
+        pvals, Z = get_pvals(df_res.values, mu=mu, sigma=sigma, df0=df0,
+                             how=config['pval_sided'])
+
+    pvals_adj = adjust_pvals(pvals, method=config["pval_adj"])
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals,
                              Z=Z, pvals_adj=pvals_adj, pseudocount=config['pseudocount'],
                              outlier_threshold=config['outlier_threshold'], base_fn=base_fn)
@@ -280,10 +294,10 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
     """
 
     ## 1. Initialize cross validation generator
-    print('=== Initializing cross validation ===')
+    logger.info('Initializing cross validation')
     cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
                                        config['max_allowed_NAs_per_protein'], log_func, num_folds=config['n_folds'],
-                                       seed=config['seed'], device=device)
+                                       device=device)
     dataset = cv_gen.dataset
 
     # test results
@@ -299,20 +313,19 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
     folds_list = []
     ## 2. Loop over folds
     for fold, (pca_subset, train_subset, val_subset, test_subset) in enumerate(cv_gen):
-        print(f'=== Fold {fold} ===')
-        print(f'\tPCA subset size: {len(pca_subset)}')
-        print(f'\tTrain subset size: {len(train_subset)}')
-        print(f'\tValidation subset size: {len(val_subset)}')
-        print(f'\tTest subset size: {len(test_subset)}')
+        logger.info(f'Fold {fold}')
+        logger.info(f'PCA subset size: {len(pca_subset)}')
+        logger.info(f'Train subset size: {len(train_subset)}')
+        logger.info(f'Validation subset size: {len(val_subset)}')
+        logger.info(f'Test subset size: {len(test_subset)}')
 
         ## 3. Find latent dim
-        print('=== Finding latent dimension ===')
+        logger.info('Finding latent dimension')
         q = find_latent_dim(pca_subset, method=config['find_q_method'],
                             ### Params for grid search method
                             inj_freq=float(config['inj_freq']),
                             inj_mean=config['inj_mean'],
                             inj_sd=config['inj_sd'],
-                            seed=config['seed'],
                             init_wPCA=config['init_pca'],
                             n_layers=config['n_layers'],
                             h_dim=config['h_dim'],
@@ -323,7 +336,7 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
                             pval_dist=config['pval_dist'],
                             out_dir=config['out_dir'],
                             device=device)
-        print(f'\tLatent dimension found with method {config["find_q_method"]}: {q}')
+        logger.info(f'Latent dimension found with method {config["find_q_method"]}: {q}')
 
         ## 4. Init model with found latent dim
         model = init_model(pca_subset, q,
@@ -331,15 +344,17 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
                            n_layer=config['n_layers'],
                            h_dim=config['h_dim'],
                            device=device)
-        print('\tModel:', model, 'device:', device)
+
+        logger.info('Model:\n%s', model)
+        logger.info('Device: %s', device)
 
         ## 5. Compute initial MSE loss
         df_out_train, train_loss = _inference(train_subset, model)
         df_out_val, val_loss = _inference(val_subset, model)
-        print(f'\tTrain loss after model init: {train_loss}')
-        print(f'\tValidation loss after model init: {val_loss}')
+        logger.info(f'Train loss after model init: {train_loss}')
+        logger.info(f'Validation loss after model init: {val_loss}')
         if config['autoencoder_training']:
-            print('=== Fitting model ===')
+            logger.info('Fitting model')
             ## 6. Train model
             # todo train validate (hyperparameter tuning)
             # todo pass validation set as well
@@ -348,29 +363,28 @@ def run_experiment_kfoldcv(input_intensities, config, sample_annotation, log_fun
                                                  learning_rate=float(config['lr']),
                                                  batch_size=config['batch_size'],
                                                  patience=config['early_stopping_patience'],
-                                                 min_delta=config['early_stopping_min_delta'],
-                                                 verbose=config['verbose']
-                                                 )
+                                                 min_delta=config['early_stopping_min_delta'])
             train_loss_list.append(train_losses)
             val_loss_list.append(val_losses)
-            df_out_train, train_loss = _inference(train_subset, model)
-            df_out_val, val_loss = _inference(val_subset, model)
-            print(f'\tFold {fold} train loss: {train_loss}')
-            print(f'\tFold {fold} validation loss: {val_loss}')
+            logger.info(f'Fold {fold} train loss: {train_loss}')
+            logger.info(f'Fold {fold} validation loss: {val_loss}')
             _plot_loss_history(train_losses, val_losses, fold, config['out_dir'])
 
+        df_out_train, train_loss = _inference(train_subset, model)
+        df_out_val, val_loss = _inference(val_subset, model)
         ## 7. Fit residual distribution on validation set
-        print('=== Estimating residual distribution parameters on validation set ===')
+        logger.info('Estimating residual distribution parameters on validation set')
         df_res_val = val_subset.data - df_out_val  # log data - pred data
         mu, sigma, df0 = fit_residuals(df_res_val.values, dis=config['pval_dist'])
 
         # 8. Compute pvals on test set
-        print('=== Running model on test set ===')
+        logger.info('Running model on test set')
         df_out_test, loss = _inference(test_subset, model)
-        print(f'\tFold {fold} test loss: {train_loss}')
+        logger.info(f'Fold {fold} test loss: {train_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
-        pvals, Z, pvals_adj = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0,
-                                        how=config['pval_sided'], padjust=config["pval_adj"])
+        pvals, Z = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0,
+                             how=config['pval_sided'])
+        pvals_adj = adjust_pvals(pvals, method=config["pval_adj"])
         df_out_list.append(df_out_test)
         df_res_list.append(df_res_test)
         test_loss_list.append(loss)
@@ -413,12 +427,11 @@ def _plot_loss_history(train_losses, val_losses, fold, out_dir):
     plt.legend(title=f'Fold {fold}')
     plt.savefig(out_p)
     plt.close()
-    print(f"\t Saved loss history plot for fold {fold} to {out_p}")
+    logger.info(f"Saved loss history plot for fold {fold} to {out_p}")
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder):
-    X_out = model(dataset.X,
-                  prot_means=dataset.prot_means_torch, cond=dataset.cov_one_hot)
+    X_out = model(dataset.X, cond=dataset.cov_one_hot)
     loss = mse_masked(dataset.X, X_out, dataset.torch_mask).detach().cpu().numpy()
 
     df_out = pd.DataFrame(X_out.detach().cpu().numpy())
@@ -451,11 +464,11 @@ def _format_results(df_out, df_res, pvals, Z, pvals_adj, dataset, pseudocount, o
     n_out_median = np.nanmedian(outs_per_sample)
     n_out_max = np.nanmax(outs_per_sample)
     n_out_total = np.nansum(outs_per_sample)
-    print(f'\tFinished computing pvalues. No. outliers per sample in median: {n_out_median}')
-    print(f'\t {sorted(outs_per_sample)}')
+    logger.info(f'Finished computing pvalues. No. outliers per sample in median: {n_out_median}')
+    logger.debug(f' {sorted(outs_per_sample)}')
 
-    print(f'\tFinished computing pvalues. No. outliers per sample in median: {np.nanmedian(outs_per_sample)}')
-    print(f'\t {sorted(outs_per_sample)}')
+    logger.info(f'Finished computing pvalues. No. outliers per sample in median: {np.nanmedian(outs_per_sample)}')
+    logger.debug(f' {sorted(outs_per_sample)}')
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_pvals=df_pvals, df_Z=df_Z,
                   df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,

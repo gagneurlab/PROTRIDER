@@ -21,7 +21,7 @@ cov_used:
 inj_freq: 1e-3
 inj_mean: 3
 inj_sd: 1.6
-seed: 
+seed: 42
 
 ## Model params
 autoencoder_training: True ## when set to false, it returns values after (PCA) initialization without training
@@ -31,13 +31,14 @@ n_epochs: 100 # number of training epochs
 lr: 1e-4 # learning rate
 early_stopping_patience: 50 # patience for early stopping
 early_stopping_min_delta: 0.01 # metric to monitor for early stopping
-batch_size: 
+lr: 1e-3
+batch_size:
 
 find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs
 init_pca: True # PCA initialization
 h_dim: # hidden dimension, only for n_layers>1
 
-cross_val: True # run protrider in k-fold cross-validation mode; only implemented for OHT
+#cross_val: True # run protrider in k-fold cross-validation mode; only implemented for OHT
 #n_folds: 5 # number of folds for cross-validation; defaults to 5
 
 ## Stat params

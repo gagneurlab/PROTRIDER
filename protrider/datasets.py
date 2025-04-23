@@ -12,6 +12,10 @@ from pydeseq2.preprocessing import deseq2_norm
 from abc import ABC
 from optht import optht
 from tqdm import tqdm
+import logging
+
+# Create a logger at the top of the file
+logger = logging.getLogger(__name__)
 
 
 class PCADataset(ABC):
@@ -30,7 +34,7 @@ class PCADataset(ABC):
                                                            self.cov_one_hot.detach().cpu()
                                                            ]),
                                                 full_matrices=False)
-        print('\tFinished fitting SVD with shapes U:', self.U.shape, 's:', self.s.shape, 'Vt:', self.Vt.shape)
+        logger.info(f'Finished fitting SVD with shapes U: {self.U.shape}, s: {self.s.shape}, Vt: {self.Vt.shape}')
 
     def find_enc_dim_optht(self):
         try:
@@ -57,10 +61,11 @@ class ProtriderDataset(Dataset, PCADataset):
         else:
             raise ValueError(f"Unsupported file type: {file_extension}")
 
+        self.device = device
         self.data = self.data.T
         self.data.index.names = ['sampleID']
         self.data.columns.name = 'proteinID'
-        print(f'\tFinished reading raw data with shape: {self.data.shape}')
+        logger.info(f'Finished reading raw data with shape: {self.data.shape}')
 
         # replace 0 with NaN (for proteomics intensities)
         self.data.replace(0, np.nan, inplace=True)
@@ -68,9 +73,8 @@ class ProtriderDataset(Dataset, PCADataset):
         # filter out proteins with too many NaNs
         filtered = np.mean(np.isnan(self.data), axis=0)
         self.data = (self.data.T[filtered <= maxNA_filter]).T
-        print(
-            f"\tFiltering out {np.sum(filtered > maxNA_filter)} proteins with too many missing values. New shape: {self.data.shape}")
-
+        logger.info(
+            f"Filtering out {np.sum(filtered > maxNA_filter)} proteins with too many missing values. New shape: {self.data.shape}")
         self.raw_data = copy.deepcopy(self.data)  ## for storing output
 
         # normalize data with deseq2
@@ -113,7 +117,7 @@ class ProtriderDataset(Dataset, PCADataset):
                 sample_anno = pd.read_csv(sa_file, sep="\t")
             else:
                 raise ValueError(f"Unsupported file type: {sa_file_extension}")
-            print(f'\tFinished reading sample annotation with shape: {sample_anno.shape}')
+            logger.info(f'Finished reading sample annotation with shape: {sample_anno.shape}')
         else:
             cov_used = None
 
@@ -141,8 +145,7 @@ class ProtriderDataset(Dataset, PCADataset):
         else:
             self.covariates = torch.empty(self.X.shape[0], 0)
             self.cov_one_hot = torch.empty(self.X.shape[0], 0)
-        print(f'\tFinished reading covariates. No. one-hot-encoded covariates used: ', self.cov_one_hot.shape[1])
-
+        logger.info(f'Finished reading covariates. No. one-hot-encoded covariates used: {self.cov_one_hot.shape[1]}')
         ### Send data to cpu/gpu device
         self.X = self.X.to(device)
         self.torch_mask = self.torch_mask.to(device)
@@ -160,7 +163,7 @@ class ProtriderSubset(Subset, PCADataset):
     def __init__(self, dataset, indices):
         super().__init__(dataset, indices)
         self.prot_means = np.nanmean(self.data, axis=0, keepdims=1)
-        self.prot_means_torch = torch.from_numpy(self.prot_means).squeeze(0)
+        self.prot_means_torch = torch.from_numpy(self.prot_means).squeeze(0).to(dataset.device)
 
     @property
     def X(self):
@@ -211,7 +214,7 @@ class ProtriderLOOCVGenerator:
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float, log_func: Callable[[ArrayLike], ArrayLike],
-                 seed: int = 42, device=torch.device('cpu')):
+                 device=torch.device('cpu')):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -221,7 +224,6 @@ class ProtriderLOOCVGenerator:
             maxNA_filter: Maximum proportion of NAs allowed per protein
             log_func: Log function to apply to the data
             num_folds: Number of cross-validation folds
-            seed: Random seed for reproducibility
         """
         self.input_intensities = input_intensities
         self.sample_annotation = sample_annotation
@@ -229,7 +231,6 @@ class ProtriderLOOCVGenerator:
         self.cov_used = cov_used
         self.maxNA_filter = maxNA_filter
         self.log_func = log_func
-        self.seed = seed
 
         # Initialize the dataset
         self.dataset = ProtriderDataset(csv_file=input_intensities,
@@ -245,13 +246,10 @@ class ProtriderLOOCVGenerator:
     def __iter__(self):
         """Generate train, validation, and test subsets for each fold"""
         for train_val_idx, test_idx in tqdm(self.loo.split(self.dataset), total=len(self.dataset)):
-            print(f"Test: {test_idx}, Train+Val: {train_val_idx}")
-
             # Further split train_val into train / val
             train_idx, val_idx = train_test_split(
                 train_val_idx,
                 test_size=0.2,
-                random_state=self.seed,
                 shuffle=True
             )
 
@@ -275,8 +273,7 @@ class ProtriderKfoldCVGenerator:
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float,
-                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, seed: int = 42,
-                 device=torch.device('cpu')):
+                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, device=torch.device('cpu')):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -286,7 +283,6 @@ class ProtriderKfoldCVGenerator:
             maxNA_filter: Maximum proportion of NAs allowed per protein
             log_func: Log function to apply to the data
             num_folds: Number of cross-validation folds
-            seed: Random seed for reproducibility
         """
         self.input_intensities = input_intensities
         self.sample_annotation = sample_annotation
@@ -295,7 +291,6 @@ class ProtriderKfoldCVGenerator:
         self.maxNA_filter = maxNA_filter
         self.log_func = log_func
         self.num_folds = num_folds
-        self.seed = seed
 
         # Initialize the dataset
         self.dataset = ProtriderDataset(csv_file=input_intensities,
@@ -307,7 +302,7 @@ class ProtriderKfoldCVGenerator:
                                         device=device)
 
         # Set up KFold
-        self.kf = KFold(n_splits=num_folds, shuffle=True, random_state=seed)
+        self.kf = KFold(n_splits=num_folds, shuffle=True)
 
         # Pre-compute all folds for consistency
         self._folds = list(self.kf.split(self.dataset))

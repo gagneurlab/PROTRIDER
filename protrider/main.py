@@ -3,12 +3,14 @@ import numpy as np
 import pandas as pd
 import yaml
 from pathlib import Path
-import pprint
 import click
 from pandas import DataFrame
 import torch
+import logging
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_kfoldcv, run_experiment_loocv
+
+logger = logging.getLogger(__name__)
 
 
 # @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -42,8 +44,14 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
 
     ## Load config with params
     config = yaml.load(open(config), Loader=yaml.FullLoader)
-    print('++++ STARTING PROTRIDER ++++\n Config used: ')
-    pprint.pprint(config)
+
+    if config['verbose']:
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
+    else:
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
+
+    logger.info('Starting protrider')
+    logger.info("Config:\n%s", yaml.dump(config, default_flow_style=False))
 
     if config['out_dir'] is not None:
         path = Path(config['out_dir'])
@@ -60,7 +68,7 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
         base_fn = np.exp
     else:
         if config['log_func_name'] is None:
-            print('[WARNING] No log function passed for preprocessing. \nAssuming data is already log transformed.')
+            logger.warning('No log function passed for preprocessing. \nAssuming data is already log transformed.')
             log_func = lambda x: x  # id
             base_fn = np.exp
         else:
@@ -71,6 +79,11 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
         raise ValueError('OHT not implemented with covariate inclusion yet')
 
     device = torch.device("cuda" if ((torch.cuda.is_available()) & (config['device'] == 'gpu')) else "cpu")
+
+    if config.get('seed', None) is not None:
+        logger.info('Setting random seed: %s', config['seed'])
+        torch.manual_seed(config['seed'])
+        np.random.seed(config['seed'])
 
     if config.get('cross_val', False):
         if config['find_q_method'] != 'OHT':
@@ -97,54 +110,54 @@ def main(config, input_intensities: str, sample_annotation: str = None) -> None:
 
 
 def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, config: dict, df_folds: DataFrame = None):
-    print('=== Saving output ===')
+    logger.info('=== Saving output ===')
     out_dir = out_dir
 
     # AE input
     out_p = f'{out_dir}/processed_input.csv'
     result.dataset.data.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved processed_input to {out_p}")
+    logger.info(f"Saved processed_input to {out_p}")
 
     # AE output
     out_p = f'{out_dir}/output.csv'
     result.df_out.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved output to {out_p}")
+    logger.info(f"Saved output to {out_p}")
 
     # residuals
     out_p = f'{out_dir}/residuals.csv'
     result.df_res.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved residuals to {out_p}")
+    logger.info(f"Saved residuals to {out_p}")
 
     # p-values
     out_p = f'{out_dir}/pvals.csv'
     result.df_pvals.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved P-values to {out_p}")
+    logger.info(f"Saved P-values to {out_p}")
 
     # p-values adj
     out_p = f'{out_dir}/pvals_adj.csv'
     result.df_pvals_adj.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved adjusted P-values to {out_p}")
+    logger.info(f"Saved adjusted P-values to {out_p}")
 
     # Z-scores
     out_p = f'{out_dir}/zscores.csv'
     result.df_Z.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved z scores to {out_p}")
+    logger.info(f"Saved z scores to {out_p}")
 
     # log2fc
     out_p = f'{out_dir}/log2fc.csv'
     result.log2fc.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved log2fc scores to {out_p}")
+    logger.info(f"Saved log2fc scores to {out_p}")
 
     # fc
     out_p = f'{out_dir}/fc.csv'
     result.fc.T.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved fc scores to {out_p}")
+    logger.info(f"Saved fc scores to {out_p}")
 
     # config
     out_p = f'{out_dir}/config.yaml'
     with open(out_p, 'w') as f:
         yaml.safe_dump(config, f)
-    print(f"\t Saved run config to {out_p}")
+    logger.info(f"Saved run config to {out_p}")
 
     # latent space
     # FIXME
@@ -161,13 +174,13 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
     folds = np.arange(len(model_info_dict['q']))
     df_info = pd.DataFrame(model_info_dict, index=pd.Index(folds, name='fold'))
     df_info.to_csv(out_p, header=True, index=True)
-    print(f"\t Saved additional input to {out_p}")
+    logger.info(f"Saved additional input to {out_p}")
 
     # folds
     if df_folds is not None:
         out_p = f'{out_dir}/folds.csv'
         df_folds.to_csv(out_p, header=True, index=True)
-        print(f"\t Saved folds to {out_p}")
+        logger.info(f"Saved folds to {out_p}")
 
     # loss history
     if model_info.train_loss_history is not None:
@@ -185,11 +198,11 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
             loss_history_dfs.append(_df)
         loss_history_df = pd.concat(loss_history_dfs)
         loss_history_df.to_csv(out_p, header=True, index=False)
-        print(f"\t Saved loss history to {out_p}")
+        logger.info(f"Saved loss history to {out_p}")
 
     out_p = f'{out_dir}/protrider_summary.csv'
     summary.to_csv(out_p, index=None)
-    print(f'\t Saved output summary with shape {summary.shape} to <{out_p}>---')
+    logger.info(f'Saved output summary with shape {summary.shape} to <{out_p}>---')
 
 
 def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, include_all=False):
@@ -202,7 +215,7 @@ def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, inc
     log2fc = result.log2fc
     fc = result.fc
 
-    print('=== Reporting summary ===')
+    logger.info('=== Reporting summary ===')
     ae_out = (ae_out.reset_index().melt(id_vars='sampleID')
               .rename(columns={'value': 'PROTEIN_EXPECTED_LOG2INT'}))
     ae_in = (ae_in.reset_index().melt(id_vars='sampleID')
@@ -236,7 +249,7 @@ def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, inc
     if not include_all:
         original_len = df_res.shape[0]
         df_res = df_res.query('PROTEIN_outlier==True')
-        print(
+        logger.info(
             f'\t--- Removing non-significant sample-protein combinations. \n\tOriginal len: {original_len}, new len: {df_res.shape[0]}---')
 
     return df_res

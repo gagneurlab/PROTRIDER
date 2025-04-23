@@ -2,9 +2,11 @@ import numpy as np
 import scipy
 import tqdm
 from joblib import Parallel, delayed
+import logging
 
-__all__ = ["fit_residuals", "get_pvals"]
+__all__ = ["fit_residuals", "get_pvals", "adjust_pvals"]
 
+logger = logging.getLogger(__name__)
 
 def fit_residuals(res, dis='gaussian'):
     if dis == 'gaussian':
@@ -17,7 +19,7 @@ def fit_residuals(res, dis='gaussian'):
     return mu, sigma, df0
 
 
-def get_pvals(res, mu, sigma, df0=None, how='two-sided', dis='gaussian', padjust=None):
+def get_pvals(res, mu, sigma, df0=None, how='two-sided', dis='gaussian'):
     hows = ('two-sided', 'left', 'right')
     if not how in hows:
         raise ValueError(f'Method should be in <{hows}>')
@@ -31,14 +33,13 @@ def get_pvals(res, mu, sigma, df0=None, how='two-sided', dis='gaussian', padjust
         assert df0 is not None, "df0 should be provided for t-distribution"
         pvals, z = get_pv_t(res, df0=df0, sigma=sigma, mu=mu, how=how)
 
-    if padjust is not None:
-        mask = ~np.isfinite(pvals)
-        pvals_adj = _false_discovery_control(np.where(mask, 1, pvals), axis=1, method=padjust)
-        pvals_adj[mask] = np.nan
-    else:
-        pvals_adj = None
+    return pvals, z
 
-    return pvals, z, pvals_adj
+def adjust_pvals(pvals, method='bh'):
+    mask = ~np.isfinite(pvals)
+    pvals_adj = _false_discovery_control(np.where(mask, 1, pvals), axis=1, method=method)
+    pvals_adj[mask] = np.nan
+    return pvals_adj
 
 
 def _get_pv_norm(res, mu, sigma, how='two-sided'):
@@ -106,7 +107,7 @@ def _get_pv_t_base(x, mu, sigma, df, how='two-sided'):
         return pv, z
 
     except Exception as e:
-        print(e)
+        logger.error(e)
         return pv, z
 
 
@@ -160,14 +161,14 @@ def _fit_t(res, max_df=100000):
         df[j] = _df
 
     # Report the number of non-converged fits
-    print(f"1st pass did not converge for {np.sum(np.isnan(df))} out of {len(df)} samples.")
+    logger.info(f"1st pass did not converge for {np.sum(np.isnan(df))} out of {len(df)} samples.")
 
     # Determine the default degree of freedom
     if np.sum(~np.isnan(df)) >= 10:
         df0 = np.nanmedian(df)  # Use median df if enough fits converged
     else:
         df0 = 10  # Fallback default df
-    print('Degrees of freedom after first pass', df0)
+    logger.info('Degrees of freedom after first pass %s', df0)
 
     def second_pass(j):
         _mu, _sigma, _ = _fit_t_base(res[:, j], df=df0, max_df=max_df)
