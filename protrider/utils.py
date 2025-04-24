@@ -127,7 +127,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals, Z=Z, pvals_adj=pvals_adj,
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
-    model_info = ModelInfo(q=q, learning_rate=config['lr'], n_epochs=config['n_epochs'], test_loss=final_loss)
+    model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config['lr']), n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss))
     return result, model_info
 
 
