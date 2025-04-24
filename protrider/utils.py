@@ -149,7 +149,7 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
     # If fit_every_fold is set to True, the model will estimate the residual distribution parameters on every fold
     # using the train-val set.
     # If set to False, the model will estimate the residual distribution parameters on the final test residuals
-    fit_every_fold = config.get('fit_every_fold', False)
+    fit_every_fold = config.get('fit_every_fold', True)
 
     ## 1. Initialize cross validation generator
     logger.info('Initializing cross validation')
