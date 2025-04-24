@@ -38,21 +38,17 @@ def find_latent_dim(dataset, method='OHT',
         for latent_dim in possible_qs:
             logger.info(f"Testing q = {latent_dim}")
             model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device)
-            X_init = model(injected_dataset.X,
-                           prot_means=injected_dataset.prot_means_torch,
-                           cond=injected_dataset.cov_one_hot)
+            X_init = model(injected_dataset.X, cond=injected_dataset.cov_one_hot)
             final_loss = mse_masked(injected_dataset.X, X_init,
                                     injected_dataset.torch_mask).detach().cpu().numpy()
-            logger.info('\tInitial loss after model init: ', final_loss)
+            logger.info('\tInitial loss after model init: %s', final_loss)
 
             logger.info('\tFitting model')
             final_loss = train(injected_dataset, model,
                                n_epochs, learning_rate, batch_size)
             logger.info(f'\tFinal loss: {final_loss}')
 
-            X_out = model(injected_dataset.X,
-                          prot_means=injected_dataset.prot_means_torch,
-                          cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
+            X_out = model(injected_dataset.X, cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
 
             if ~np.isfinite(final_loss):
                 auc_prec_rec = np.nan
@@ -116,7 +112,7 @@ def _rlnorm(size, inj_mean, inj_sd):
 def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, device=torch.device('cpu')):
     max_outlier_value = np.nanmin([100 * np.nanmax(dataset.X.detach().cpu().numpy()),
                                    torch.finfo(dataset.X.dtype).max])
-    logger.info('max value', max_outlier_value)
+    logger.info('max value %s', max_outlier_value)
     X_prepro = dataset.X  ## uncentered data without NAs
     X_trans = dataset.X
 
