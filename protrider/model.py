@@ -15,11 +15,7 @@ class ConditionalEnDecoder(nn.Module):
     def __init__(self, in_dim, out_dim, is_encoder, h_dim=None, n_layers=1, 
                  prot_means=None, presence_absence=False):
         super().__init__()
-        if presence_absence & (prot_means is not None):
-            self.prot_means = torch.cat([prot_means, 
-                                     torch.zeros(prot_means.shape).to(prot_means.device)]) # for substraction in forward
-        else: 
-            self.prot_means = prot_means
+        self.prot_means = prot_means
         
         self.is_encoder = is_encoder
         self.n_layers = n_layers
@@ -43,18 +39,16 @@ class ConditionalEnDecoder(nn.Module):
             last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder or prot_means is None)
             modules.append(last_layer)
             self.model = nn.Sequential(*modules)
-
+        
         # if the model is a decoder, then the bias should be initialized to the protein means
         if not is_encoder and prot_means is not None:
-            if presence_absence:
-                prot_means = torch.cat([prot_means, last_layer.bias.data[out_dim//2:].to(prot_means.device)])
             last_layer.bias.data.copy_(prot_means).squeeze(0)
 
     def forward(self, x, cond=None):
         if self.is_encoder and (self.prot_means is not None):
             x = x - self.prot_means  
         if cond is not None:
-            x = torch.cat([x, cond], 1)
+            x = torch.cat([x, cond], -1)
         return self.model(x)
 
 
@@ -94,7 +88,6 @@ class ProtriderAutoencoder(nn.Module):
             return
         
         n_prots = prot_means.shape[1] # (1, n_prots)
-        presence_absence = 2*n_prots==self.decoder.model.bias.shape[0]
         
         device = self.encoder.model.weight.device
         Vt_q = torch.from_numpy(Vt_q).to(device)
@@ -103,34 +96,18 @@ class ProtriderAutoencoder(nn.Module):
         ## ENCODER
         self.encoder.model.weight.data.copy_(Vt_q)
         enc_bias = self.encoder.model.bias.data
-        if presence_absence:
-            b = torch.cat([torch.from_numpy(prot_means).to(device),
-                           torch.ones((1, n_prots)).to(device), ### check alternative init
-                           torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv).to(device)  # alternatively just set to zero
-                           ], axis=1)  # prot_means
-        else:
-            b = torch.cat([torch.from_numpy(prot_means).to(device),
+        
+        b = torch.cat([torch.from_numpy(prot_means).to(device),
                            torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv).to(device)  # alternatively just set to zero
                            ], axis=1)
         self.encoder.model.bias.data.copy_(-(Vt_q @ b.T).flatten())
 
+        ## DECODER weights: (n_prots or n_prots, q+cov), bias: (n_prot)
+        self.decoder.model.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
 
-        ## DECODER
-        ## weights: (n_prots or n_prots*2, q+cov), bias: (n_prot*2)
-
-        # Bias 
-        prot_means = torch.from_numpy(prot_means)
-        
-        if presence_absence:
-            prot_means = torch.cat([prot_means.to(device), 
-                                    self.decoder.model.bias.data[n_prots:].unsqueeze(0).to(device)],
-                                   axis=1)
-        self.decoder.model.bias.data.copy_(prot_means.squeeze(0))
-
-        #Init cov with uniform distribution in range stdv
         cov_dec_init = self.decoder.model.weight.data.uniform_(-stdv, stdv)[:, 0:n_cov]
         self.decoder.model.weight.data.copy_(
-            torch.cat([Vt_q.T[:(2*n_prots if presence_absence else n_prots)].to(device),
+            torch.cat([Vt_q.T[:n_prots].to(device),
                        cov_dec_init.to(device)], axis=1)
         )
         
@@ -146,9 +123,9 @@ def mse_bce_loss(x_hat, x, mask, lambda_bce, presence_absence, detached=False):
 
     if presence_absence:
         presence = (~mask).double()
-        n = x_hat.shape[1] // 2
-        presence_hat = x_hat[:, n:]       # Predicted presence (0–1)
-        x_hat = x_hat[:, :n]              # Predicted intensities
+        #n = x_hat.shape[1] // 2
+        presence_hat = x_hat[1]       # Predicted presence (0–1)
+        x_hat = x_hat[0]              # Predicted intensities
 
     mse_loss = mse_masked(x_hat, x, mask)
     if detached:
@@ -195,7 +172,9 @@ def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3,
             else: 
                 x_in = val_subset.X
             
-            x_hat_val = model(x_in, cond=val_subset.cov_one_hot)
+            x_hat_val = model(x_in, 
+                              cond=torch.stack([val_subset.cov_one_hot, val_subset.cov_one_hot]) if presence_absence else val_subset.cov_one_hot
+                             )
             val_loss, val_mse_loss, val_bce_loss = mse_bce_loss(x_hat_val, val_subset.X, 
                                                                 val_subset.torch_mask, 
                                                                 lambda_bce, presence_absence).detach().cpu().numpy()
@@ -251,13 +230,14 @@ def _train_iteration(data_loader, model, optimizer, presence_absence, lambda_bce
         x, mask, cov, prot_means = data
         if presence_absence:
             presence = (~mask).double()
-            x_in = torch.hstack([x, presence])
+            x_in = torch.stack([x, presence]) #torch.hstack([x, presence])
         else: 
             x_in = x
-
+            
         # restore grads and compute model out
         optimizer.zero_grad()
-        x_hat = model(x_in, cond=cov)
+        x_hat = model(x_in, 
+                      cond=torch.stack([cov, cov]) if presence_absence else cov)
         
         loss, mse_loss, bce_loss = mse_bce_loss(x_hat, x, mask, lambda_bce, presence_absence)
         

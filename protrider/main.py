@@ -142,6 +142,11 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
     result.df_res.T.to_csv(out_p, header=True, index=True)
     logger.info(f"Saved residuals to {out_p}")
 
+    if result.df_presence is not None:
+        out_p = f'{out_dir}/presence_probs.csv'
+        result.df_presence.T.to_csv(out_p, header=True, index=True)
+        logger.info(f"Saved presence probabilities to {out_p}")
+    
     # p-values
     out_p = f'{out_dir}/pvals.csv'
     result.df_pvals.T.to_csv(out_p, header=True, index=True)

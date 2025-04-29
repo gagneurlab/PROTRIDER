@@ -40,10 +40,12 @@ def find_latent_dim(dataset, method='OHT',
             logger.info(f"Testing q = {latent_dim}")
             model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, 
                                h_dim, device, presence_absence)
-            X_input = torch.hstack([injected_dataset.X, 
+            X_input = torch.stack([injected_dataset.X, 
                                     (~injected_dataset.torch_mask).double()]) if presence_absence else injected_dataset.X                
     
-            X_out = model(X_input, cond=injected_dataset.cov_one_hot) 
+            X_out = model(X_input, 
+                          cond=torch.stack([injected_dataset.cov_one_hot, injected_dataset.cov_one_hot]) if presence_absence else injected_dataset.cov_one_hot
+                          ) 
             loss, mse_loss, bce_loss = mse_bce_loss(X_out,
                                                     injected_dataset.X, 
                                                     injected_dataset.torch_mask, 
@@ -58,9 +60,12 @@ def find_latent_dim(dataset, method='OHT',
             logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s', 
                          loss, mse_loss, bce_loss)
 
-            X_out = model(X_input, cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
+            X_out = model(X_input, 
+                          cond=torch.stack([injected_dataset.cov_one_hot, injected_dataset.cov_one_hot]) if presence_absence else injected_dataset.cov_one_hot
+                         ).detach().cpu().numpy()
             if presence_absence:
-                X_out = X_out[:, :injected_dataset.X.shape[1]]
+                presence_out = X_out[1]
+                X_out = X_out[0]
                 
             if ~np.isfinite(loss):
                 auc_prec_rec = np.nan
@@ -94,7 +99,7 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None,
                device=torch.device('cpu'), presence_absence=False):
     n_cov = dataset.cov_one_hot.shape[1]
     n_prots = dataset.X.shape[1]
-    model = ProtriderAutoencoder(in_dim=n_prots*2 if (presence_absence & (n_layer==1)) else n_prots,
+    model = ProtriderAutoencoder(in_dim=n_prots,#*2 if (presence_absence & (n_layer==1)) else n_prots,
                                  latent_dim=latent_dim,
                                  n_layers=n_layer, h_dim=h_dim,
                                  n_cov=n_cov, prot_means=None if init_wPCA else dataset.prot_means_torch,
