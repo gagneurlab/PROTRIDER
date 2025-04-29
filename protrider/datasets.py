@@ -30,10 +30,17 @@ class PCADataset(ABC):
         self.Vt = None
 
     def perform_svd(self):
-        self.U, self.s, self.Vt = np.linalg.svd(np.hstack([self.centered_log_data_noNA,
-                                                           self.cov_one_hot.detach().cpu()
-                                                           ]),
-                                                full_matrices=False)
+        if self.presence_absence:
+            stacked = [self.centered_log_data_noNA,
+                       (~self.torch_mask).double().detach().cpu(),
+                       self.cov_one_hot.detach().cpu()
+                      ]
+        else:
+            stacked = [self.centered_log_data_noNA,
+                       self.cov_one_hot.detach().cpu()
+                      ]           
+            
+        self.U, self.s, self.Vt = np.linalg.svd(np.hstack(stacked), full_matrices=False)
         logger.info(f'Finished fitting SVD with shapes U: {self.U.shape}, s: {self.s.shape}, Vt: {self.Vt.shape}')
 
     def find_enc_dim_optht(self):
@@ -48,9 +55,11 @@ class PCADataset(ABC):
 class ProtriderDataset(Dataset, PCADataset):
     def __init__(self, csv_file, index_col, sa_file=None,
                  cov_used=None, log_func=np.log,
-                 maxNA_filter=0.3, device=torch.device('cpu')):
+                 maxNA_filter=0.3, device=torch.device('cpu'), 
+                 presence_absence=False):
         super().__init__()
-
+        
+        self.presence_absence = presence_absence
         # read csv
         file_extension = Path(csv_file).suffix
         if file_extension == '.csv':
@@ -151,6 +160,7 @@ class ProtriderDataset(Dataset, PCADataset):
         self.torch_mask = self.torch_mask.to(device)
         self.cov_one_hot = self.cov_one_hot.to(device)
         self.prot_means_torch = self.prot_means_torch.to(device)
+        #self.presence = (~self.torch_mask).long()
 
     def __len__(self):
         return len(self.X)
@@ -213,7 +223,7 @@ class ProtriderCVGenerator(ABC):
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float,
-                 log_func: Callable[[ArrayLike], ArrayLike], device=torch.device('cpu')):
+                 log_func: Callable[[ArrayLike], ArrayLike], device=torch.device('cpu'), presence_absence: bool=False):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -223,6 +233,7 @@ class ProtriderCVGenerator(ABC):
             maxNA_filter: Maximum proportion of NAs allowed per protein
             log_func: Log function to apply to the data
         """
+        self.presence_absence = presence_absence
         self.input_intensities = input_intensities
         self.sample_annotation = sample_annotation
         self.index_col = index_col
@@ -274,7 +285,7 @@ class ProtriderLOOCVGenerator(ProtriderCVGenerator):
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float, log_func: Callable[[ArrayLike], ArrayLike],
-                 device=torch.device('cpu')):
+                 device=torch.device('cpu'),  presence_absence: bool=False):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -285,7 +296,7 @@ class ProtriderLOOCVGenerator(ProtriderCVGenerator):
             log_func: Log function to apply to the data
             num_folds: Number of cross-validation folds
         """
-        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device)
+        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device, presence_absence)
 
         # Set up LOO
         self.loo = LeaveOneOut()
@@ -306,7 +317,8 @@ class ProtriderKfoldCVGenerator(ProtriderCVGenerator):
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float,
-                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, device=torch.device('cpu')):
+                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, device=torch.device('cpu'),
+                 presence_absence: bool=False):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -317,7 +329,7 @@ class ProtriderKfoldCVGenerator(ProtriderCVGenerator):
             log_func: Log function to apply to the data
             num_folds: Number of cross-validation folds
         """
-        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device)
+        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device, presence_absence)
         self.num_folds = num_folds
         # Set up KFold
         self.kf = KFold(n_splits=num_folds, shuffle=True)

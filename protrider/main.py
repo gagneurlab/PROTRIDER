@@ -87,8 +87,14 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
             raise ValueError(f"Log func {config['log_func_name']} not supported.")
 
     ## Catch some errors/inconsistencies
-    if config['find_q_method'] == 'OHT' and config['cov_used'] is not None:
+    if (config['find_q_method'] == 'OHT') and (config['cov_used'] is not None):
         raise ValueError('OHT not implemented with covariate inclusion yet')
+
+    if (config['find_q_method'] == 'OHT') and (config['presence_absence']==True):
+        raise ValueError('OHT not implemented with presence/absence analysis yet')
+        
+    if (config['presence_absence'] == True) and (config['n_layers']!=1):
+        raise ValueError('Presence absence inclusion is only with 1-layers models possible')
 
     device = torch.device("cuda" if ((torch.cuda.is_available()) & (config['device'] == 'gpu')) else "cpu")
 

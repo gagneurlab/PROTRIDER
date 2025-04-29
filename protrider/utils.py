@@ -3,13 +3,13 @@ import pandas as pd
 from typing import Union, Tuple, List
 from pandas import DataFrame
 from dataclasses import dataclass
-# todo add to setup.py and requirements.txt
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
 import logging
 
-from .model import train, train_val, mse_masked, ProtriderAutoencoder
+import torch
+import torch.nn.functional as F
+
+from .model import train, train_val, mse_bce_loss, ProtriderAutoencoder
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
 from .stats import get_pvals, fit_residuals, adjust_pvals
 from .model_helper import find_latent_dim, init_model
@@ -67,7 +67,8 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                                cov_used=config['cov_used'],
                                log_func=log_func,
                                maxNA_filter=config['max_allowed_NAs_per_protein'],
-                               device=device)
+                               device=device, 
+                               presence_absence=config['presence_absence'])
 
     ## 2. Find latent dim
     logger.info('Finding latent dimension')
@@ -85,7 +86,9 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                         pval_sided=config['pval_sided'],
                         pval_dist=config['pval_dist'],
                         out_dir=config['out_dir'],
-                        device=device
+                        device=device,
+                        presence_absence=config['presence_absence'],
+                        lambda_bce=config['lambda_presence_absence']
                         )
     logger.info(f'Latent dimension found with method {config["find_q_method"]}: {q}')
 
@@ -94,23 +97,32 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                        init_wPCA=config['init_pca'],
                        n_layer=config['n_layers'],
                        h_dim=config['h_dim'],
-                       device=device
+                       device=device,
+                       presence_absence=config['presence_absence'] if config['n_layers']==1 else False
                        )
     logger.info('Model:\n%s', model)
     logger.info('Device: %s', device)
 
-    ## 4. Compute initial MSE loss
-    df_out, final_loss = _inference(dataset, model)
-    logger.info('Initial loss after model init: %s', final_loss)
+    ## 4. Compute initial loss
+    df_out, init_loss, init_mse_loss, init_bce_loss = _inference(dataset, model, 
+                                                                 lambda_bce=config['lambda_presence_absence'],
+                                                                 presence_absence=config['presence_absence'])
+    logger.info('Initial loss after model init: %s, mse loss: %s, bce loss: %s', init_loss, init_mse_loss, init_bce_loss)
+    
     if config['autoencoder_training']:
         logger.info('Fitting model')
         ## 5. Train model
         train(dataset, model,
               n_epochs=config['n_epochs'],
               learning_rate=float(config['lr']),
-              batch_size=config['batch_size'], )
-        df_out, final_loss = _inference(dataset, model)
-        logger.info('Final loss: %s', final_loss)
+              batch_size=config['batch_size'],
+              presence_absence=config['presence_absence'],
+              lambda_bce=config['lambda_presence_absence']
+             )
+        df_out, final_loss, final_mse_loss, final_bce_loss = _inference(dataset, model, 
+                                                                        lambda_bce=config['lambda_presence_absence'],
+                                                                        presence_absence=config['presence_absence'])
+        logger.info('Final loss: %s, mse loss: %s, bce loss: %s', final_loss, final_mse_loss, final_bce_loss)
 
     ## 6. Compute residuals, pvals, zscores
     logger.info('Computing statistics')
@@ -127,7 +139,8 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, pvals=pvals, Z=Z, pvals_adj=pvals_adj,
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
-    model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config['lr']), n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss))
+    model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config['lr']), 
+                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss))
     return result, model_info
 
 
@@ -156,10 +169,14 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
     if config.get('n_folds', None) is not None:
         cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'],
                                            config['cov_used'], config['max_allowed_NAs_per_protein'], log_func,
-                                           num_folds=config['n_folds'], device=device)
+                                           num_folds=config['n_folds'], device=device, 
+                                           presence_absence=config['presence_absence']
+                                          )
     else:
         cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
-                                         config['max_allowed_NAs_per_protein'], log_func, device=device)
+                                         config['max_allowed_NAs_per_protein'], log_func, device=device,
+                                        presence_absence=config['presence_absence']
+                                        )
     dataset = cv_gen.dataset
 
     # test results
@@ -195,7 +212,10 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
                             pval_sided=config['pval_sided'],
                             pval_dist=config['pval_dist'],
                             out_dir=config['out_dir'],
-                            device=device)
+                            device=device,
+                            presence_absence=config['presence_absence'],
+                            lambda_bce=config['lambda_presence_absence']
+                           )
         logger.info(f'Latent dimension found with method {config["find_q_method"]}: {q}')
 
         ## 4. Init model with found latent dim
@@ -203,14 +223,20 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
                            init_wPCA=config['init_pca'],
                            n_layer=config['n_layers'],
                            h_dim=config['h_dim'],
-                           device=device)
+                           device=device,
+                           presence_absence=config['presence_absence']
+                          )
 
         logger.info('Model:\n%s', model)
         logger.info('Device: %s', device)
 
         ## 5. Compute initial MSE loss
-        df_out_train, train_loss = _inference(train_subset, model)
-        df_out_val, val_loss = _inference(val_subset, model)
+        df_out_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model, 
+                                                                              lambda_bce=config['lambda_presence_absence'],
+                                                                              presence_absence=config['presence_absence'])
+        df_out_val, val_loss, val_mse_loss, val_bce_loss = _inference(val_subset, model, 
+                                                                      lambda_bce=config['lambda_presence_absence'],
+                                                                      presence_absence=config['presence_absence'])
         logger.info(f'Train loss after model init: {train_loss}')
         logger.info(f'Validation loss after model init: {val_loss}')
         if config['autoencoder_training']:
@@ -223,17 +249,27 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
                                                  learning_rate=float(config['lr']),
                                                  batch_size=config['batch_size'],
                                                  patience=config.get('early_stopping_patience', 50),
-                                                 min_delta=config.get('early_stopping_min_delta', 0.0001))
+                                                 min_delta=config.get('early_stopping_min_delta', 0.0001),
+                                                presence_absence=config['presence_absence'],
+                                                lambda_bce=config['lambda_presence_absence']
+                                                )
             _plot_loss_history(train_losses, val_losses, fold, config['out_dir'])
 
-        df_out_train, train_loss = _inference(train_subset, model)
-        df_out_val, val_loss = _inference(val_subset, model)
+        df_out_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model, 
+                                                                              lambda_bce=config['lambda_presence_absence'],
+                                                                              presence_absence=config['presence_absence'])
+        df_out_val, val_loss, val_mse_loss, val_bce_loss = _inference(val_subset, model, 
+                                                                      lambda_bce=config['lambda_presence_absence'],
+                                                                      presence_absence=config['presence_absence'])
         logger.info(f'Fold {fold} train loss: {train_loss}')
         logger.info(f'Fold {fold} validation loss: {val_loss}')
 
         # 7. Compute residuals on test set
         logger.info('Running model on test set')
-        df_out_test, test_loss = _inference(test_subset, model)
+        df_out_test, test_loss, test_mse_loss, test_bce_loss = _inference(test_subset, model, 
+                                                                          presence_absence=config['presence_absence'],
+                                                                          lambda_bce=config['lambda_presence_absence']
+                                                                         )
         logger.info(f'Fold {fold} test loss: {test_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
 
@@ -277,6 +313,9 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
 
 
 def _plot_loss_history(train_losses, val_losses, fold, out_dir):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
     # plot the loss history; stratified by fold
     plot_dir = Path(out_dir) / 'plots'
     plot_dir.mkdir(parents=True, exist_ok=True)
@@ -296,15 +335,28 @@ def _plot_loss_history(train_losses, val_losses, fold, out_dir):
     logger.info(f"Saved loss history plot for fold {fold} to {out_p}")
 
 
-def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder):
-    X_out = model(dataset.X, cond=dataset.cov_one_hot)
-    loss = mse_masked(dataset.X, X_out, dataset.torch_mask).detach().cpu().numpy()
-
+def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], 
+               model: ProtriderAutoencoder, 
+               lambda_bce: float,
+               presence_absence: bool):
+    
+    X_out = model( torch.hstack([dataset.X, (~dataset.torch_mask).double()]) if presence_absence else dataset.X,
+                   cond=dataset.cov_one_hot)
+    
+    loss, mse_loss, bce_loss = mse_bce_loss(X_out, dataset.X, 
+                                            dataset.torch_mask, 
+                                            lambda_bce, presence_absence, detached=True)
+    if presence_absence:
+        n = X_out.shape[1] // 2
+        presence_hat = X_out[:, n:]       # Predicted presence (0–1)
+        X_out = X_out[:, :n]               # Predicted intensities
+        ## TODO: store presence_hat as df
+    
     df_out = pd.DataFrame(X_out.detach().cpu().numpy())
     df_out.columns = dataset.data.columns
     df_out.index = dataset.data.index
 
-    return df_out, loss
+    return df_out, loss, mse_loss, bce_loss
 
 
 def _format_results(df_out, df_res, pvals, Z, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn):

@@ -6,7 +6,7 @@ import torch
 import copy
 
 from .stats import get_pvals, fit_residuals
-from .model import ProtriderAutoencoder, train, mse_masked
+from .model import ProtriderAutoencoder, train, mse_bce_loss#masked
 import logging
 
 __all__ = ['init_model', 'find_latent_dim']
@@ -19,7 +19,8 @@ def find_latent_dim(dataset, method='OHT',
                     init_wPCA=True, n_layers=1, h_dim=None,
                     n_epochs=100, learning_rate=1e-6, batch_size=None,
                     pval_sided='two-sided', pval_dist='gaussian',
-                    out_dir=None, device=torch.device('cpu')
+                    out_dir=None, device=torch.device('cpu'),
+                    presence_absence=False, lambda_bce=1.
                     ):
     if method == "OHT":
         logger.info('OHT method for finding latent dim')
@@ -37,20 +38,31 @@ def find_latent_dim(dataset, method='OHT',
         gridSearch_results = []
         for latent_dim in possible_qs:
             logger.info(f"Testing q = {latent_dim}")
-            model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device)
-            X_init = model(injected_dataset.X, cond=injected_dataset.cov_one_hot)
-            final_loss = mse_masked(injected_dataset.X, X_init,
-                                    injected_dataset.torch_mask).detach().cpu().numpy()
-            logger.info('\tInitial loss after model init: %s', final_loss)
+            model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, 
+                               h_dim, device, presence_absence)
+            X_input = torch.hstack([injected_dataset.X, 
+                                    (~injected_dataset.torch_mask).double()]) if presence_absence else injected_dataset.X                
+    
+            X_out = model(X_input, cond=injected_dataset.cov_one_hot) 
+            loss, mse_loss, bce_loss = mse_bce_loss(X_out,
+                                                    injected_dataset.X, 
+                                                    injected_dataset.torch_mask, 
+                                                    lambda_bce, presence_absence, detached=True)
+            logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s', 
+                         loss, mse_loss, bce_loss)
 
             logger.info('\tFitting model')
-            final_loss = train(injected_dataset, model,
-                               n_epochs, learning_rate, batch_size)
-            logger.info(f'\tFinal loss: {final_loss}')
+            loss, mse_loss, bce_loss = train(injected_dataset, model,
+                                             n_epochs, learning_rate, batch_size, 
+                                             presence_absence, lambda_bce)
+            logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s', 
+                         loss, mse_loss, bce_loss)
 
-            X_out = model(injected_dataset.X, cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
-
-            if ~np.isfinite(final_loss):
+            X_out = model(X_input, cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
+            if presence_absence:
+                X_out = X_out[:, :injected_dataset.X.shape[1]]
+                
+            if ~np.isfinite(loss):
                 auc_prec_rec = np.nan
             else:
                 X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
@@ -79,19 +91,22 @@ def find_latent_dim(dataset, method='OHT',
 
 
 def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None,
-               device=torch.device('cpu')):
+               device=torch.device('cpu'), presence_absence=False):
     n_cov = dataset.cov_one_hot.shape[1]
     n_prots = dataset.X.shape[1]
-    model = ProtriderAutoencoder(in_dim=n_prots, latent_dim=latent_dim,
+    model = ProtriderAutoencoder(in_dim=n_prots*2 if (presence_absence & (n_layer==1)) else n_prots,
+                                 latent_dim=latent_dim,
                                  n_layers=n_layer, h_dim=h_dim,
-                                 n_cov=n_cov, prot_means=None if init_wPCA else dataset.prot_means_torch)
+                                 n_cov=n_cov, prot_means=None if init_wPCA else dataset.prot_means_torch,
+                                 presence_absence=presence_absence
+                                 )
     model.double().to(device)
-
+    
     if init_wPCA:
         logger.info('\tInitializing model weights with PCA')
         dataset.perform_svd()
         Vt_q = dataset.Vt[:latent_dim]
-        model.initialize_wPCA(Vt_q, dataset.prot_means, n_cov)
+        model.initialize_wPCA(Vt_q, dataset.prot_means, n_cov, presence_absence)
     return model
 
 

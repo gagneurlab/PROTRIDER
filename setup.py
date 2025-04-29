@@ -20,7 +20,9 @@ setup(
                             'optht',
                             'pydeseq2',
                             'scipy',
-                            'scikit-learn'
+                            'scikit-learn',
+                            'logging',
+                            'pathlib'
                             ],
         url='https://github.com/gagneurlab/PROTRIDER',
         license='',

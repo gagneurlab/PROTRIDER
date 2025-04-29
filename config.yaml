@@ -57,3 +57,6 @@ report_all: True
 
 verbose: False
 device: 'gpu'
+
+presence_absence: False
+lambda_presence_absence: 0.5
