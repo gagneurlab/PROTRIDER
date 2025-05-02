@@ -166,6 +166,7 @@ def _fit_t(res, max_df=100000):
     # Determine the default degree of freedom
     if np.sum(~np.isnan(df)) >= 10:
         df0 = np.nanmedian(df)  # Use median df if enough fits converged
+        #df0 = max(df0, 9)
     else:
         df0 = 10  # Fallback default df
     logger.info('Degrees of freedom after first pass %s', df0)

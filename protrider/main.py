@@ -215,6 +215,7 @@ def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, inc
     pvals_adj = result.df_pvals_adj
     log2fc = result.log2fc
     fc = result.fc
+    presence = result.df_presence
 
     logger.info('=== Reporting summary ===')
     ae_out = (ae_out.reset_index().melt(id_vars='sampleID')
@@ -244,6 +245,11 @@ def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, inc
               .merge(fc, on=merge_cols)
               ).reset_index(drop=True)
 
+    if presence is not None:
+        presence = (presence.reset_index().melt(id_vars='sampleID')
+              .rename(columns={'value': 'pred_presence_probability'}))
+        df_res = df_res.merge(presence, on=merge_cols).reset_index(drop=True)
+        
     df_res['PROTEIN_outlier'] = df_res['PROTEIN_PADJ'].apply(lambda x: x <= outlier_thres)
     df_res['pvalDistribution'] = pval_dist
 

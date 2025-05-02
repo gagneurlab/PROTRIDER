@@ -115,7 +115,7 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None,
     return model
 
 
-def _get_gs_params(data_shape, MP=2, a=6, max_steps=25):
+def _get_gs_params(data_shape, MP=2, a=3, max_steps=30):
     b = round(min(data_shape) / MP)
     n_steps = min(max_steps, b)  # do at most 25 steps or N/3
     par_q = np.unique(np.round(np.exp(np.linspace(start=np.log(a),
