@@ -49,6 +49,10 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
 
     """
 
+    return run(config, input_intensities, sample_annotation, out_dir)
+
+
+def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None):
     ## Load config with params
     config = yaml.load(open(config), Loader=yaml.FullLoader)
 
