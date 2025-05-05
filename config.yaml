@@ -37,6 +37,10 @@ find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs
 init_pca: True # PCA initialization
 h_dim: # hidden dimension, only for n_layers>1
 
+## Presence absence modelling
+presence_absence: False
+lambda_presence_absence: 0.5
+
 ## Cross-validation parameters
 cross_val: False # run protrider in k-fold cross-validation mode; only implemented for OHT; defaults to False
 #n_folds: 5 # number of folds for cross-validation; defaults to 5
@@ -56,6 +60,3 @@ report_all: True
 
 verbose: False
 device: 'gpu'
-
-presence_absence: False
-lambda_presence_absence: 0.5
