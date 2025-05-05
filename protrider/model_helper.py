@@ -99,7 +99,6 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, devic
         dataset.perform_svd()
         Vt_q = dataset.Vt[:latent_dim]
         model.initialize_wPCA(Vt_q, dataset.prot_means, n_cov)
-    logger.debug(model)
     return model
 
 
