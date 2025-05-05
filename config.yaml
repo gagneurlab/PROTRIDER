@@ -24,6 +24,7 @@ seed: 42
 inj_freq: 1e-3
 inj_mean: 3
 inj_sd: 1.6
+gs_epochs: 100
 
 ## Model params
 autoencoder_training: True ## when set to false, it returns values after (PCA) initialization without training
