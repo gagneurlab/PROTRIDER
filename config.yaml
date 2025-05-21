@@ -34,7 +34,7 @@ n_epochs: 100 # number of training epochs
 lr: 1e-4 # learning rate
 batch_size:
 
-find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs
+find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs or an integer value
 init_pca: True # PCA initialization
 h_dim: # hidden dimension, only for n_layers>1
 

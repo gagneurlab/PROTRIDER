@@ -27,7 +27,7 @@ def find_latent_dim(dataset, method='OHT',
         logger.info('OHT method for finding latent dim')
         dataset.perform_svd()
         q = dataset.find_enc_dim_optht()
-    else:
+    elif method == "gs":
         logger.info('Grid search method for finding latent dim')
         logger.info('Injecting outliers')
         inj_freq = float(inj_freq)
@@ -81,7 +81,9 @@ def find_latent_dim(dataset, method='OHT',
             out_p = f'{out_dir}/grid_search.csv'
             df_gs.to_csv(out_p, header=True, index=True)
             logger.info(f"\t Saved grid_search to {out_p}")
-
+    else:
+        print("Setting q is to the fixed user provided value of " + str(method))
+        q = int(method)
     return q
 
 
