@@ -12,7 +12,7 @@ import logging
 import os
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
-from .plots import _plot_pvals, _plot_encoding_dim
+from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,11 @@ logger = logging.getLogger(__name__)
     help="Plot the endocing dimension search plot"
 )
 @click.option(
+    '--plot_aberrant_per_sample',
+    is_flag=True,
+    help="Plot nubmer of aberrant proteins per sample"
+)
+@click.option(
     "--sample_annotation",
     help="csv file containing sample annotations",
     type=click.Path(exists=True, dir_okay=False),
@@ -65,7 +70,7 @@ logger = logging.getLogger(__name__)
     help="Output directory to save results",
     type=click.Path(exists=False, dir_okay=True, file_okay=False),
 )
-def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, plot_encoding_dim: bool = False, sample_annotation: str = None, out_dir: str = None) -> None:
+def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, sample_annotation: str = None, out_dir: str = None) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -86,6 +91,9 @@ def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatma
     elif plot_encoding_dim is True:
          print("plotting encoding dimension search plot")
          _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
+    elif plot_aberrant_per_sample is True:
+        print("plotting number of aberrant proteins per sample")
+        _plot_aberrant_per_sample(config["out_dir"], plot_title)
     elif run_pipeline is True:
         print('Runing PROTRIDER pipeline')
         return run(config, input_intensities, sample_annotation, out_dir)

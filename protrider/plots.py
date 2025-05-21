@@ -3,9 +3,7 @@ import pandas as pd
 import plotnine as pn
 import os
 
-import matplotlib.pyplot as plt
-
-__all__ = ["_plot_pvals", "_plot_encoding_dim"]
+__all__ = ["_plot_pvals", "_plot_encoding_dim", "_plot_aberrant_per_sample", "_plot_aberrant_per_sample"]
 
 
 def _plot_pvals(output_dir, distribution, plot_title=""):
@@ -67,7 +65,8 @@ def _plot_pvals(output_dir, distribution, plot_title=""):
 
 
 def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None):
-    
+    os.makedirs(output_dir + "/plots/", exist_ok=True)
+ 
     if find_q_method != "gs":
         print("plot_encoding_dim is not implemented for OHT yet.")
         return
@@ -110,4 +109,52 @@ def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None):
 
     # Save plot
     p_out.save(output_dir + "/plots/encoding_dim_search.png", 
-               width=6, height=6, units='in', dpi=300)
+               width=4, height=4, units='in', dpi=300)
+
+def _plot_aberrant_per_sample(output_dir, plot_title=""):
+    os.makedirs(output_dir + "/plots/", exist_ok=True)
+
+    res = pd.read_csv(f"{output_dir}/protrider_summary.csv")
+    
+    aberrants = res[res["PROTEIN_outlier"] == True]
+    non_aberrant_ids = set(res["sampleID"].unique()) - set(aberrants["sampleID"])
+    non_aberrant = pd.DataFrame({"sampleID": list(non_aberrant_ids), "outlier_count": 0})
+
+    # Count aberrant outliers per sample
+    aberrant_counts = aberrants["sampleID"].value_counts().reset_index()
+    aberrant_counts.columns = ["sampleID", "outlier_count"]
+
+    # Combine and sort
+    aberrant_numbers = pd.concat([aberrant_counts, non_aberrant], ignore_index=True)
+    aberrant_numbers = aberrant_numbers.sort_values("outlier_count").reset_index(drop=True)
+    aberrant_numbers["Rank"] = aberrant_numbers.index + 1
+    
+    median_val = aberrant_numbers["outlier_count"].median()
+    percentile_95 = aberrant_numbers["outlier_count"].quantile(0.95)
+
+    fontsize = 12
+    yadjust = 1.2
+    
+    p_out = (
+        pn.ggplot(aberrant_numbers, pn.aes(x="Rank", y="outlier_count + 1")) +
+        pn.geom_line(color="blue") +
+        pn.labs(x="Sample rank", y="Outliers per sample + 1", title=plot_title) +
+        pn.scale_y_log10() +
+        pn.geom_hline(yintercept=median_val, color="black") +
+        pn.geom_hline(yintercept=percentile_95, color="black") +
+        pn.geom_text(
+            pn.aes(x=5, y=median_val*yadjust, label="'Median'"),
+            size=fontsize*0.7,
+            ha='left'
+        ) +
+        pn.geom_text(
+            pn.aes(x=5, y=percentile_95*yadjust, label="'95th percentile'"),
+            size=fontsize*0.7,
+            ha='left'
+        ) +
+        pn.theme_bw(base_size=fontsize)
+    )
+    
+    # Save plot
+    p_out.save(output_dir + "/plots/aberrant_per_sample.png",
+               width=4, height=4, units='in', dpi=300)
