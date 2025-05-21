@@ -9,8 +9,10 @@ import click
 from pandas import DataFrame
 import torch
 import logging
+import os
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
+from .plots import _plot_pvals, _plot_encoding_dim
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,31 @@ logger = logging.getLogger(__name__)
     type=click.Path(exists=True, dir_okay=False),
 )
 @click.option(
+    '--run_pipeline',
+    is_flag=True,
+    help="Run PROTRIDER pipeline"
+)
+@click.option(
+    '--plot_heatmap',
+    is_flag=True,
+    help="Plot the correlation heatmaps"
+)
+@click.option(
+    '--plot_title',
+    type=str,
+    help="Title of the plots"
+)
+@click.option(
+    '--plot_pvals',
+    is_flag=True,
+    help="Plot the pvalue plots"
+)
+@click.option(
+    '--plot_encoding_dim',
+    is_flag=True,
+    help="Plot the endocing dimension search plot"
+)
+@click.option(
     "--sample_annotation",
     help="csv file containing sample annotations",
     type=click.Path(exists=True, dir_okay=False),
@@ -38,7 +65,7 @@ logger = logging.getLogger(__name__)
     help="Output directory to save results",
     type=click.Path(exists=False, dir_okay=True, file_okay=False),
 )
-def main(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None) -> None:
+def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, plot_encoding_dim: bool = False, sample_annotation: str = None, out_dir: str = None) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -48,13 +75,23 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
     - Official code repository: https://github.com/gagneurlab/PROTRIDER
 
     """
-
-    return run(config, input_intensities, sample_annotation, out_dir)
+    ## Load config with params
+    config = yaml.load(open(config), Loader=yaml.FullLoader) 
+    if plot_heatmap is True:
+        print("plotting correlation_heatmaps")
+        os.system("Rscript ~/PROTRIDER_plot_heatmap.R " + sample_annotation + " " + config["out_dir"] + " " + plot_title)
+    elif plot_pvals is True:
+        print("plotting pvalue plots")
+        _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
+    elif plot_encoding_dim is True:
+         print("plotting encoding dimension search plot")
+         _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
+    elif run_pipeline is True:
+        print('Runing PROTRIDER pipeline')
+        return run(config, input_intensities, sample_annotation, out_dir)
 
 
 def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None):
-    ## Load config with params
-    config = yaml.load(open(config), Loader=yaml.FullLoader)
 
     if config['verbose']:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
@@ -153,6 +190,11 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
     out_p = f'{out_dir}/pvals.csv'
     result.df_pvals.T.to_csv(out_p, header=True, index=True)
     logger.info(f"Saved P-values to {out_p}")
+    
+    # left-sided p-values
+    out_p = f'{out_dir}/pvals_one_sided.csv'
+    result.df_pvals_one_sided.T.to_csv(out_p, header=True, index=True)
+    logger.info(f"Saved left-sided P-values to {out_p}")
 
     # p-values adj
     out_p = f'{out_dir}/pvals_adj.csv'

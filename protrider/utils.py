@@ -34,6 +34,7 @@ class Result:
     df_out: pd.DataFrame
     df_res: pd.DataFrame
     df_pvals: pd.DataFrame
+    df_pvals_one_sided: pd.DataFrame 
     df_presence: pd.DataFrame
     df_Z: pd.DataFrame
     df_pvals_adj: pd.DataFrame
@@ -89,6 +90,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                         presence_absence=config['presence_absence'],
                         lambda_bce=config['lambda_presence_absence']
                         )
+
     logger.info(f'Latent dimension found with method {config["find_q_method"]}: {q}')
 
     ## 3. Init model with found latent dim
@@ -107,7 +109,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     df_out, df_presence, init_loss, init_mse_loss, init_bce_loss = _inference(dataset, model, criterion)
     logger.info('Initial loss after model init: %s, mse loss: %s, bce loss: %s', init_loss, init_mse_loss,
                 init_bce_loss)
-
+    final_loss = 10**4
     if config['autoencoder_training']:
         logger.info('Fitting model')
         ## 5. Train model
@@ -127,9 +129,16 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                          df0=df0,
                          how=config['pval_sided'],
                          dis=config['pval_dist'])
+    pvals_one_sided, _ = get_pvals(df_res.values,
+                         mu=mu,
+                         sigma=sigma,
+                         df0=df0,
+                         how='left',
+                         dis=config['pval_dist'])
+
     pvals_adj = adjust_pvals(pvals, method=config["pval_adj"])
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
-                             pvals=pvals, Z=Z, pvals_adj=pvals_adj,
+                             pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config['lr']),
@@ -332,7 +341,7 @@ def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: Protrid
     return df_out, df_presence, loss, mse_loss, bce_loss
 
 
-def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn):
+def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn):
     # Store as df
     df_pvals_adj = pd.DataFrame(pvals_adj)
     df_pvals_adj.columns = dataset.data.columns
@@ -346,6 +355,10 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_adj, dataset, p
     df_Z = pd.DataFrame(Z)
     df_Z.columns = dataset.data.columns
     df_Z.index = dataset.data.index
+    
+    df_pvals_one_sided = pd.DataFrame(pvals_one_sided)
+    df_pvals_one_sided.columns = dataset.data.columns
+    df_pvals_one_sided.index = dataset.data.index
 
     pseudocount = pseudocount  # 0.01
     log2fc = np.log2(base_fn(dataset.data) + pseudocount) - np.log2(base_fn(df_out) + pseudocount)
@@ -362,5 +375,5 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_adj, dataset, p
     logger.debug(f' {sorted(outs_per_sample)}')
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence, df_pvals=df_pvals, df_Z=df_Z,
-                  df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,
+                  df_pvals_one_sided=df_pvals_one_sided, df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,
                   n_out_total=n_out_total)
