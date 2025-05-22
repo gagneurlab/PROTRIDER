@@ -12,7 +12,7 @@ import logging
 import os
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
-from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample, _plot_loss
+from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample, _plot_training_loss
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +56,12 @@ logger = logging.getLogger(__name__)
     help="Plot nubmer of aberrant proteins per sample"
 )
 @click.option(
-    '--plot_loss',
+    '--plot_training_loss',
     is_flag=True,
     help="Plot training loss history"
 )
 def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, 
-         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_loss: bool = False) -> None:
+         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_training_loss: bool = False) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -85,9 +85,9 @@ def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_ti
     elif plot_aberrant_per_sample is True:
         print("plotting number of aberrant proteins per sample")
         _plot_aberrant_per_sample(config["out_dir"], plot_title)
-    elif plot_loss is True:
+    elif plot_training_loss is True:
         print("plotting training loss")
-        _plot_loss(config["out_dir"], plot_title)
+        _plot_training_loss(config["out_dir"], plot_title)
     elif run_pipeline is True:
         print('Runing PROTRIDER pipeline')
         return run(config)

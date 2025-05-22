@@ -12,6 +12,7 @@ from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
 from .stats import get_pvals, fit_residuals, adjust_pvals
 from .model_helper import find_latent_dim, init_model
+from .plots import _plot_cv_loss
 
 __all__ = ["ModelInfo", "Result", "run_experiment", "run_experiment_cv"]
 
@@ -238,7 +239,7 @@ def run_experiment_cv(config, log_func, base_fn, device) -> Tuple[
                                                  batch_size=config['batch_size'],
                                                  patience=config.get('early_stopping_patience', 50),
                                                  min_delta=config.get('early_stopping_min_delta', 0.0001))
-            _plot_loss_history(train_losses, val_losses, fold, config['out_dir'])
+            _plot_cv_loss(train_losses, val_losses, fold, config['out_dir'])
 
         df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
                                                                                                  criterion)
@@ -293,29 +294,6 @@ def run_experiment_cv(config, log_func, base_fn, device) -> Tuple[
     model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config['lr']),
                            n_epochs=np.array(config['n_epochs']), test_loss=np.array(test_loss_list))
     return result, model_info, df_folds
-
-
-def _plot_loss_history(train_losses, val_losses, fold, out_dir):
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-
-    # plot the loss history; stratified by fold
-    plot_dir = Path(out_dir) / 'plots'
-    plot_dir.mkdir(parents=True, exist_ok=True)
-    out_p = f'{plot_dir}/loss_history_fold{fold}.png'
-
-    df = pd.concat([pd.DataFrame(dict(type='validation', loss=val_losses, epoch=np.arange(len(val_losses)))),
-                    pd.DataFrame(dict(type='train', loss=train_losses, epoch=np.arange(len(train_losses))))])
-    sns.set(style="whitegrid")
-    plt.figure(figsize=(10, 6))
-    sns.lineplot(data=df, x='epoch', y='loss', hue='type')
-    plt.title(f'Loss history for fold {fold}')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend(title=f'Fold {fold}')
-    plt.savefig(out_p)
-    plt.close()
-    logger.info(f"Saved loss history plot for fold {fold} to {out_p}")
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss):

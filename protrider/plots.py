@@ -2,8 +2,10 @@ import numpy as np
 import pandas as pd
 import plotnine as pn
 import os
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-__all__ = ["_plot_pvals", "_plot_encoding_dim", "_plot_aberrant_per_sample", "_plot_aberrant_per_sample", "_plot_loss"]
+__all__ = ["_plot_pvals", "_plot_encoding_dim", "_plot_aberrant_per_sample", "_plot_aberrant_per_sample", "_plot_training_loss", "_plot_cv_loss"]
 
 
 def _plot_pvals(output_dir, distribution, plot_title=""):
@@ -111,6 +113,7 @@ def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None):
     p_out.save(output_dir + "/plots/encoding_dim_search.png", 
                width=4, height=4, units='in', dpi=300)
 
+
 def _plot_aberrant_per_sample(output_dir, plot_title=""):
     os.makedirs(f"{output_dir}/plots/", exist_ok=True)
 
@@ -159,7 +162,8 @@ def _plot_aberrant_per_sample(output_dir, plot_title=""):
     p_out.save(output_dir + "/plots/aberrant_per_sample.png",
                width=4, height=4, units='in', dpi=300)
 
-def _plot_loss(output_dir, plot_title=""):
+
+def _plot_training_loss(output_dir, plot_title=""):
     os.makedirs(f"{output_dir}/plots/", exist_ok=True)
     fontsize = 12
     loss_histoty = pd.read_csv(f"{output_dir}/train_losses.csv")
@@ -173,3 +177,23 @@ def _plot_loss(output_dir, plot_title=""):
     # Save plot
     p_out.save(output_dir + "/plots/training_loss.png",
                width=6, height=6, units='in', dpi=300)
+
+
+def _plot_cv_loss(train_losses, val_losses, fold, out_dir):
+    # plot the loss history; stratified by fold
+    plot_dir = Path(out_dir) / 'plots'
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    out_p = f'{plot_dir}/loss_history_fold{fold}.png'
+
+    df = pd.concat([pd.DataFrame(dict(type='validation', loss=val_losses, epoch=np.arange(len(val_losses)))),
+                    pd.DataFrame(dict(type='train', loss=train_losses, epoch=np.arange(len(train_losses))))])
+    sns.set(style="whitegrid")
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(data=df, x='epoch', y='loss', hue='type')
+    plt.title(f'Loss history for fold {fold}')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend(title=f'Fold {fold}')
+    plt.savefig(out_p)
+    plt.close()
+    logger.info(f"Saved loss history plot for fold {fold} to {out_p}")
