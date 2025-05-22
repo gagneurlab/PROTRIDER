@@ -48,7 +48,7 @@ def find_latent_dim(dataset, method='OHT',
                         loss, mse_loss, bce_loss)
 
             logger.info('\tFitting model')
-            loss, mse_loss, bce_loss = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size)
+            loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size)
             logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
                         loss, mse_loss, bce_loss)
             X_out = model(injected_dataset.X, injected_dataset.torch_mask,
