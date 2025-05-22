@@ -12,7 +12,7 @@ import logging
 import os
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
-from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample, _plot_training_loss
+from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample, _plot_training_loss, _plot_expected_vs_observed
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +60,24 @@ logger = logging.getLogger(__name__)
     is_flag=True,
     help="Plot training loss history"
 )
+@click.option(
+    '--plot_expected_vs_observed',
+    is_flag=True,
+    help="Plot expected vs observed protein intensitiy for protein protein_id"
+)
+@click.option(
+    '--protein_id',
+    type=str,
+    help="Id of the protein to plot"
+)
+@click.option(
+    '--plot_all',
+    is_flag=True,
+    help="Plot training loss, nubmer of aberrant proteins per sample, pvalue plots and endocing dimension search"
+)
 def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, 
-         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_training_loss: bool = False) -> None:
+         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_training_loss: bool = False, 
+         plot_expected_vs_observed: bool = False, protein_id: str = None, plot_all: bool = False) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -73,28 +89,36 @@ def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_ti
     """
     ## Load config with params
     config = yaml.load(open(config), Loader=yaml.FullLoader) 
-    if plot_heatmap is True:
-        print("plotting correlation_heatmaps")
+    if run_pipeline is True:
+        logger.info('Runing PROTRIDER pipeline')
+        return run(config)
+    elif plot_heatmap is True:
+        logger.info("plotting correlation_heatmaps")
         os.system("Rscript ~/PROTRIDER_plot_heatmap.R " + config['sample_annotation'] + " " + config['out_dir'] + " " + plot_title)
     elif plot_pvals is True:
-        print("plotting pvalue plots")
+        logger.info("plotting pvalue plots")
         _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
     elif plot_encoding_dim is True:
-         print("plotting encoding dimension search plot")
+         logger.info("plotting encoding dimension search plot")
          _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
     elif plot_aberrant_per_sample is True:
-        print("plotting number of aberrant proteins per sample")
+        logger.info("plotting number of aberrant proteins per sample")
         _plot_aberrant_per_sample(config["out_dir"], plot_title)
     elif plot_training_loss is True:
-        print("plotting training loss")
+        logger.info("plotting training loss")
         _plot_training_loss(config["out_dir"], plot_title)
-    elif run_pipeline is True:
-        print('Runing PROTRIDER pipeline')
-        return run(config)
+    elif plot_expected_vs_observed is True:
+        logger.info(f"plotting expected vs observed protein intensitiy for protein {protein_id}")
+        _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
+    elif plot_all is True:
+        _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
+        _plot_aberrant_per_sample(config["out_dir"], plot_title)
+        _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
+        _plot_training_loss(config["out_dir"], plot_title)
+        _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
 
 
 def run(config):
-
     if config['verbose']:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
     else:
