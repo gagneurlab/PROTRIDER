@@ -12,7 +12,7 @@ import logging
 import os
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
-from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample
+from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample, _plot_loss
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,11 @@ logger = logging.getLogger(__name__)
     help="Plot nubmer of aberrant proteins per sample"
 )
 @click.option(
+    '--plot_loss',
+    is_flag=True,
+    help="Plot training loss history"
+)
+@click.option(
     "--sample_annotation",
     help="csv file containing sample annotations",
     type=click.Path(exists=True, dir_okay=False),
@@ -70,7 +75,8 @@ logger = logging.getLogger(__name__)
     help="Output directory to save results",
     type=click.Path(exists=False, dir_okay=True, file_okay=False),
 )
-def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, sample_annotation: str = None, out_dir: str = None) -> None:
+def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, 
+         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_loss: bool = False, sample_annotation: str = None, out_dir: str = None) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -94,6 +100,9 @@ def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatma
     elif plot_aberrant_per_sample is True:
         print("plotting number of aberrant proteins per sample")
         _plot_aberrant_per_sample(config["out_dir"], plot_title)
+    elif plot_loss is True:
+        print("plotting training loss")
+        _plot_loss(config["out_dir"], plot_title)
     elif run_pipeline is True:
         print('Runing PROTRIDER pipeline')
         return run(config, input_intensities, sample_annotation, out_dir)
@@ -243,6 +252,17 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
         model_info_dict = {k: np.array([v]) for k, v in model_info_dict.items()}
 
     folds = np.arange(len(model_info_dict['q']))
+    if df_folds is None:
+        train_losses = model_info_dict.pop("train_losses")
+        train_losses_df = pd.DataFrame({
+            'epoch': range(1, len(train_losses[0]) + 1),
+            'train_loss': train_losses[0],
+        }) 
+        out_p = f'{out_dir}/train_losses.csv'
+        train_losses_df.to_csv(out_p, header=True, index=False)
+        logger.info(f"Saved training losses to {out_p}")
+    
+    out_p = f'{out_dir}/additional_info.csv'
     df_info = pd.DataFrame(model_info_dict, index=pd.Index(folds, name='fold'))
     df_info.to_csv(out_p, header=True, index=True)
     logger.info(f"Saved additional input to {out_p}")

@@ -3,11 +3,11 @@ import pandas as pd
 import plotnine as pn
 import os
 
-__all__ = ["_plot_pvals", "_plot_encoding_dim", "_plot_aberrant_per_sample", "_plot_aberrant_per_sample"]
+__all__ = ["_plot_pvals", "_plot_encoding_dim", "_plot_aberrant_per_sample", "_plot_aberrant_per_sample", "_plot_loss"]
 
 
 def _plot_pvals(output_dir, distribution, plot_title=""):
-    os.makedirs(output_dir + "/plots/", exist_ok=True)
+    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
   
     dt_pvals = pd.read_csv(os.path.join(output_dir, "pvals_one_sided.csv"))
     dt_pvals = dt_pvals.melt(id_vars='proteinID')
@@ -65,7 +65,7 @@ def _plot_pvals(output_dir, distribution, plot_title=""):
 
 
 def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None):
-    os.makedirs(output_dir + "/plots/", exist_ok=True)
+    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
  
     if find_q_method != "gs":
         print("plot_encoding_dim is not implemented for OHT yet.")
@@ -112,7 +112,7 @@ def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None):
                width=4, height=4, units='in', dpi=300)
 
 def _plot_aberrant_per_sample(output_dir, plot_title=""):
-    os.makedirs(output_dir + "/plots/", exist_ok=True)
+    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
 
     res = pd.read_csv(f"{output_dir}/protrider_summary.csv")
     
@@ -158,3 +158,18 @@ def _plot_aberrant_per_sample(output_dir, plot_title=""):
     # Save plot
     p_out.save(output_dir + "/plots/aberrant_per_sample.png",
                width=4, height=4, units='in', dpi=300)
+
+def _plot_loss(output_dir, plot_title=""):
+    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
+    fontsize = 12
+    loss_histoty = pd.read_csv(f"{output_dir}/train_losses.csv")
+    p_out = (
+        pn.ggplot(loss_histoty, pn.aes(x="epoch", y="train_loss")) +
+        pn.geom_line(color="blue") +
+        pn.labs(x="Epoch", y="Loss", title=plot_title) +
+        pn.theme_bw(base_size=fontsize)
+    )
+
+    # Save plot
+    p_out.save(output_dir + "/plots/training_loss.png",
+               width=6, height=6, units='in', dpi=300)

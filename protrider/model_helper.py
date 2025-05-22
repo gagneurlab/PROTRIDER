@@ -23,7 +23,7 @@ def find_latent_dim(dataset, method='OHT',
                     out_dir=None, device=torch.device('cpu'),
                     presence_absence=False, lambda_bce=1.
                     ):
-    if method == "OHT":
+    if method == "OHT" or method == "oht":
         logger.info('OHT method for finding latent dim')
         dataset.perform_svd()
         q = dataset.find_enc_dim_optht()
@@ -82,7 +82,7 @@ def find_latent_dim(dataset, method='OHT',
             df_gs.to_csv(out_p, header=True, index=True)
             logger.info(f"\t Saved grid_search to {out_p}")
     else:
-        print("Setting q is to the fixed user provided value of " + str(method))
+        print("Setting q is a fixed user-provided value")
         q = int(method)
     return q
 
