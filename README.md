@@ -47,6 +47,7 @@ An example dataset can be found in this repository under `sample_data/`.
 To run PROTRIDER, a configuration file needs to be provided. This can be adapted from the configuration file provided in this code repo (`config.yaml`). User options include
 
 - `out_dir`: Path to the directory to store output files.
+- `input_intensities`: Csv input file containing the protein intensities.
 - `cov_used`: List of column names contained in the sample annotation file to be included as known covariates.
 - `find_q_method`: Method to determine latent space dimension of autoencoder.
 - `pval_dist`: Distribution (Gaussian or Student's t-test) for P-value calculation.
@@ -56,5 +57,13 @@ To run PROTRIDER, a configuration file needs to be provided. This can be adapted
 Run PROTRIDER using the following command: 
 
 ```
-protrider --config <config_path> --input_intensities <intensities_path> --sample_annotation <sample_anno_path>
+protrider --run_pipeline --config <config_path>
+```
+Create PROTRIDER plots using the following command:
+```
+protrider --plot_all --config <config_path>
+```
+Each plot can also be created separately, for example:
+```
+protrider --plot_aberrant_per_sample --config <config_path>
 ```
