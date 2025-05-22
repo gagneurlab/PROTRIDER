@@ -1,7 +1,14 @@
 # path to output directory to store result files
 out_dir: output
+
+# csv input file containing intensities. Columns are samples and rows are proteins.
+input_intensities: input_intensities.csv
+
 # column name in the input file indicating the column name containing the protein names/IDs
 index_col: "protein_ID"
+
+# csv file containing sample annotations
+# sample_annotation: sample_annotation.csv
 
 ## Preprocessing params
 # maximum percentage of missing values per protein
