@@ -26,11 +26,6 @@ logger = logging.getLogger(__name__)
     type=click.Path(exists=True, dir_okay=False),
 )
 @click.option(
-    "--input_intensities",
-    help="csv input file containing intensities. Columns are samples and rows are proteins. See example here: FIXME",
-    type=click.Path(exists=True, dir_okay=False),
-)
-@click.option(
     '--run_pipeline',
     is_flag=True,
     help="Run PROTRIDER pipeline"
@@ -65,18 +60,8 @@ logger = logging.getLogger(__name__)
     is_flag=True,
     help="Plot training loss history"
 )
-@click.option(
-    "--sample_annotation",
-    help="csv file containing sample annotations",
-    type=click.Path(exists=True, dir_okay=False),
-)
-@click.option(
-    "--out_dir",
-    help="Output directory to save results",
-    type=click.Path(exists=False, dir_okay=True, file_okay=False),
-)
-def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, 
-         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_loss: bool = False, sample_annotation: str = None, out_dir: str = None) -> None:
+def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, 
+         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_loss: bool = False) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -90,7 +75,7 @@ def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatma
     config = yaml.load(open(config), Loader=yaml.FullLoader) 
     if plot_heatmap is True:
         print("plotting correlation_heatmaps")
-        os.system("Rscript ~/PROTRIDER_plot_heatmap.R " + sample_annotation + " " + config["out_dir"] + " " + plot_title)
+        os.system("Rscript ~/PROTRIDER_plot_heatmap.R " + config['sample_annotation'] + " " + config['out_dir'] + " " + plot_title)
     elif plot_pvals is True:
         print("plotting pvalue plots")
         _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
@@ -105,10 +90,10 @@ def main(config, input_intensities: str, run_pipeline: bool = False, plot_heatma
         _plot_loss(config["out_dir"], plot_title)
     elif run_pipeline is True:
         print('Runing PROTRIDER pipeline')
-        return run(config, input_intensities, sample_annotation, out_dir)
+        return run(config)
 
 
-def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None):
+def run(config):
 
     if config['verbose']:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
@@ -120,12 +105,8 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
 
     config = defaultdict(lambda: None, config)
 
-    if out_dir is not None:
-        config['out_dir'] = out_dir
-
-    if config['out_dir'] is not None:
-        path = Path(config['out_dir'])
-        path.mkdir(parents=True, exist_ok=True)
+    path = Path(config['out_dir'])
+    path.mkdir(parents=True, exist_ok=True)
 
     if config['log_func_name'] == "log2":
         log_func = np.log2
@@ -145,6 +126,10 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
             raise ValueError(f"Log func {config['log_func_name']} not supported.")
 
     ## Catch some errors/inconsistencies
+    if config['input_intensities'] is None:
+        raise ValueError('input_intensities Should be provided in config')
+    if config['out_dir'] is None:
+        raise ValueError('out_dir Should be provided in config')
     if (config['find_q_method'] == 'OHT') and (config['cov_used'] is not None):
         raise ValueError('OHT not implemented with covariate inclusion yet')
 
@@ -162,11 +147,9 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
         np.random.seed(config['seed'])
 
     if config.get('cross_val', False):
-        result, model_info, df_folds = run_experiment_cv(input_intensities, config, sample_annotation,
-                                                         log_func, base_fn, device=device)
+        result, model_info, df_folds = run_experiment_cv(config, log_func, base_fn, device=device)
     else:
-        result, model_info, = run_experiment(input_intensities, config, sample_annotation, log_func, base_fn,
-                                             device=device)
+        result, model_info, = run_experiment(config, log_func, base_fn, device=device)
         df_folds = None
 
     summary = _report_summary(result, config['pval_dist'], config['outlier_threshold'],

@@ -25,6 +25,7 @@ class ModelInfo:
     learning_rate: np.array
     n_epochs: np.array
     test_loss: np.array
+    train_losses: np.array
 
 
 @dataclass
@@ -45,13 +46,11 @@ class Result:
     n_out_total: int
 
 
-def run_experiment(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[Result, ModelInfo]:
+def run_experiment(config, log_func, base_fn, device) -> Tuple[Result, ModelInfo]:
     """
     Perform protein outlier detection in a single run.
     Args:
-        input_intensities:
         config:
-        sample_annotation:
         log_func:
         base_fn:
         device:
@@ -59,12 +58,11 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     Returns:
 
     """
-
     ## 1. Initialize dataset
     logger.info('Initializing dataset')
-    dataset = ProtriderDataset(csv_file=input_intensities,
+    dataset = ProtriderDataset(csv_file=config['input_intensities'],
                                index_col=config['index_col'],
-                               sa_file=sample_annotation,
+                               sa_file=config['sample_annotation'],
                                cov_used=config['cov_used'],
                                log_func=log_func,
                                maxNA_filter=config['max_allowed_NAs_per_protein'],
@@ -110,10 +108,11 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
     logger.info('Initial loss after model init: %s, mse loss: %s, bce loss: %s', init_loss, init_mse_loss,
                 init_bce_loss)
     final_loss = 10**4
+    train_losses = []
     if config['autoencoder_training']:
         logger.info('Fitting model')
         ## 5. Train model
-        train(dataset, model, criterion, n_epochs=config['n_epochs'], learning_rate=float(config['lr']),
+        running_loss, running_mse_loss, running_bce_loss, train_losses = train(dataset, model, criterion, n_epochs=config['n_epochs'], learning_rate=float(config['lr']),
               batch_size=config['batch_size'])
         df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(dataset, model, criterion)
         logger.info('Final loss: %s, mse loss: %s, bce loss: %s', final_loss, final_mse_loss, final_bce_loss)
@@ -142,18 +141,16 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config['lr']),
-                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss))
+                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss), train_losses=train_losses)
     return result, model_info
 
 
-def run_experiment_cv(input_intensities, config, sample_annotation, log_func, base_fn, device) -> Tuple[
+def run_experiment_cv(config, log_func, base_fn, device) -> Tuple[
     Result, ModelInfo, DataFrame]:
     """
     Perform protein outlier detection with cross-validation.
     Args:
-        input_intensities:
         config:
-        sample_annotation:
         log_func:
         base_fn:
         device:
@@ -169,11 +166,11 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
     ## 1. Initialize cross validation generator
     logger.info('Initializing cross validation')
     if config.get('n_folds', None) is not None:
-        cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'],
+        cv_gen = ProtriderKfoldCVGenerator(config['input_intensities'], config['sample_annotation'], config['index_col'],
                                            config['cov_used'], config['max_allowed_NAs_per_protein'], log_func,
                                            num_folds=config['n_folds'], device=device)
     else:
-        cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
+        cv_gen = ProtriderLOOCVGenerator(config['input_intensities'], config['sample_annotation'], config['index_col'], config['cov_used'],
                                          config['max_allowed_NAs_per_protein'], log_func, device=device)
     dataset = cv_gen.dataset
     criterion = MSEBCELoss(presence_absence=config['presence_absence'], lambda_bce=config['lambda_presence_absence'])
