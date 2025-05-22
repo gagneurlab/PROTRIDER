@@ -95,8 +95,9 @@ def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_ti
         logger.info('Runing PROTRIDER pipeline')
         return run(config)
     elif plot_heatmap is True:
-        logger.info("plotting correlation_heatmaps")
-        os.system("Rscript ~/PROTRIDER_plot_heatmap.R " + config['sample_annotation'] + " " + config['out_dir'] + " " + plot_title)
+        # TODO add plot_heatmap
+        logger.info("plotting correlation_heatmaps is not implemented yet.")
+        return
     elif plot_pvals is True:
         logger.info("plotting pvalue plots")
         _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
