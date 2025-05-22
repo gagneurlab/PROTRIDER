@@ -22,7 +22,8 @@ setup(
                             'scipy',
                             'scikit-learn',
                             'logging',
-                            'pathlib'
+                            'seaborn',
+                            'plotnine',
                             ],
         url='https://github.com/gagneurlab/PROTRIDER',
         license='',
