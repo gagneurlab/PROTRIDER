@@ -210,7 +210,7 @@ def _plot_expected_vs_observed(output_dir, protein_id, plot_title="", fontsize=1
     df_plot["outlier"] = pd.Categorical(df_plot["outlier"], categories=["Outlier"])
 
     p_out = (
-        pn.ggplot(df_plot, pn.aes(x="in_int", y="out_int")) +
+        pn.ggplot(df_plot, pn.aes(x="out_int", y="in_int")) +
         pn.geom_point(pn.aes(color="outlier"), show_legend=False) +
         pn.geom_text(
             pn.aes(label="label"),
@@ -221,8 +221,8 @@ def _plot_expected_vs_observed(output_dir, protein_id, plot_title="", fontsize=1
         pn.scale_x_log10() +
         pn.scale_y_log10() +
         pn.labs(
-            x="Observed log10-intensity",
-            y="Expected log10-intensity",
+            x="Expected log10-intensity",
+            y="Observed log10-intensity",
             title=f"Protein: {protein_id}"
         ) +
         pn.theme_bw(base_size=fontsize)

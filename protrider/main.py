@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 @click.option(
     '--plot_title',
     type=str,
+    default="",
     help="Title of the plots"
 )
 @click.option(
@@ -75,7 +76,7 @@ logger = logging.getLogger(__name__)
     is_flag=True,
     help="Plot training loss, nubmer of aberrant proteins per sample, pvalue plots and endocing dimension search"
 )
-def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = None, plot_pvals: bool = False, 
+def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = "", plot_pvals: bool = False, 
          plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_training_loss: bool = False, 
          plot_expected_vs_observed: bool = False, protein_id: str = None, plot_all: bool = False) -> None:
     """# PROTRIDER
@@ -87,6 +88,7 @@ def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_ti
     - Official code repository: https://github.com/gagneurlab/PROTRIDER
 
     """
+    print(plot_title)
     ## Load config with params
     config = yaml.load(open(config), Loader=yaml.FullLoader) 
     if run_pipeline is True:
@@ -108,6 +110,8 @@ def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_ti
         logger.info("plotting training loss")
         _plot_training_loss(config["out_dir"], plot_title)
     elif plot_expected_vs_observed is True:
+        if protein_id is None:
+            raise ValueError("protein_id is required for plot_expected_vs_observed function.")
         logger.info(f"plotting expected vs observed protein intensitiy for protein {protein_id}")
         _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
     elif plot_all is True:
@@ -115,6 +119,8 @@ def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_ti
         _plot_aberrant_per_sample(config["out_dir"], plot_title)
         _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
         _plot_training_loss(config["out_dir"], plot_title)
+        if protein_id is None:
+            raise ValueError("protein_id is required for plot_expected_vs_observed function.")
         _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
 
 
