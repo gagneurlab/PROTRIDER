@@ -29,9 +29,9 @@ class PCADataset(ABC):
         self.Vt = None
 
     def perform_svd(self):
-        stacked = [self.centered_log_data_noNA, self.cov_one_hot.detach().cpu()]
-
-        self.U, self.s, self.Vt = np.linalg.svd(np.hstack(stacked), full_matrices=False)
+        self.U, self.s, self.Vt = np.linalg.svd(np.hstack([self.centered_log_data_noNA, 
+                                                            self.cov_one_hot.detach().cpu() ]), 
+                                                full_matrices=False)
         logger.info(f'Finished fitting SVD with shapes U: {self.U.shape}, s: {self.s.shape}, Vt: {self.Vt.shape}')
 
     def find_enc_dim_optht(self):
