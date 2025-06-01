@@ -6,7 +6,8 @@ import torch
 import copy
 
 from .stats import get_pvals, fit_residuals
-from .model import ProtriderAutoencoder, train, mse_bce_loss#masked
+from .model import ProtriderAutoencoder, train, MSEBCELoss  # masked
+from .datasets import ProtriderSubset
 import logging
 
 __all__ = ['init_model', 'find_latent_dim']
@@ -38,35 +39,24 @@ def find_latent_dim(dataset, method='OHT',
         gridSearch_results = []
         for latent_dim in possible_qs:
             logger.info(f"Testing q = {latent_dim}")
-            model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, 
-                               h_dim, device, presence_absence)
-            X_input = torch.stack([injected_dataset.X, 
-                                    (~injected_dataset.torch_mask).double()]) if presence_absence else injected_dataset.X                
-    
-            X_out = model(X_input, 
-                          cond=torch.stack([injected_dataset.cov_one_hot, injected_dataset.cov_one_hot]) if presence_absence else injected_dataset.cov_one_hot
-                          ) 
-            loss, mse_loss, bce_loss = mse_bce_loss(X_out,
-                                                    injected_dataset.X, 
-                                                    injected_dataset.torch_mask, 
-                                                    lambda_bce, presence_absence, detached=True)
-            logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s', 
-                         loss, mse_loss, bce_loss)
+            model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device,
+                               presence_absence=presence_absence)
+            criterion = MSEBCELoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
+            X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.cov_one_hot)
+            loss, mse_loss, bce_loss = criterion(X_out, injected_dataset.X, injected_dataset.torch_mask, detached=True)
+            logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s',
+                        loss, mse_loss, bce_loss)
 
             logger.info('\tFitting model')
-            loss, mse_loss, bce_loss = train(injected_dataset, model,
-                                             n_epochs, learning_rate, batch_size, 
-                                             presence_absence, lambda_bce)
-            logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s', 
-                         loss, mse_loss, bce_loss)
-
-            X_out = model(X_input, 
-                          cond=torch.stack([injected_dataset.cov_one_hot, injected_dataset.cov_one_hot]) if presence_absence else injected_dataset.cov_one_hot
-                         ).detach().cpu().numpy()
+            loss, mse_loss, bce_loss = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size)
+            logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
+                        loss, mse_loss, bce_loss)
+            X_out = model(injected_dataset.X, injected_dataset.torch_mask,
+                          cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
             if presence_absence:
                 presence_out = X_out[1]
                 X_out = X_out[0]
-                
+
             if ~np.isfinite(loss):
                 auc_prec_rec = np.nan
             else:
@@ -95,23 +85,20 @@ def find_latent_dim(dataset, method='OHT',
     return q
 
 
-def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None,
-               device=torch.device('cpu'), presence_absence=False):
+def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, device=torch.device('cpu'),
+               presence_absence=False):
     n_cov = dataset.cov_one_hot.shape[1]
     n_prots = dataset.X.shape[1]
-    model = ProtriderAutoencoder(in_dim=n_prots,#*2 if (presence_absence & (n_layer==1)) else n_prots,
-                                 latent_dim=latent_dim,
-                                 n_layers=n_layer, h_dim=h_dim,
-                                 n_cov=n_cov, prot_means=None if init_wPCA else dataset.prot_means_torch,
-                                 presence_absence=presence_absence
-                                 )
+    model = ProtriderAutoencoder(in_dim=n_prots, latent_dim=latent_dim, n_layers=n_layer, h_dim=h_dim, n_cov=n_cov,
+                                 prot_means=None if init_wPCA else dataset.prot_means_torch,
+                                 presence_absence=presence_absence)
     model.double().to(device)
-    
+
     if init_wPCA:
         logger.info('\tInitializing model weights with PCA')
         dataset.perform_svd()
         Vt_q = dataset.Vt[:latent_dim]
-        model.initialize_wPCA(Vt_q, dataset.prot_means, n_cov, presence_absence)
+        model.initialize_wPCA(Vt_q, dataset.prot_means, n_cov)
     return model
 
 
@@ -160,7 +147,11 @@ def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, device=torc
     nr_out = np.sum(np.abs(outlier_mask[np.isfinite(outlier_mask)]))
     logger.info(f"Injecting {nr_out} outliers (freq = {nr_out / dataset.X.nelement()})")
 
-    ds_injected = copy.deepcopy(dataset)
+    if isinstance(dataset, ProtriderSubset):
+        ds_injected = dataset.deepcopy_to_dataset()
+    else:
+        ds_injected = copy.deepcopy(dataset)
+
     # ds_injected.X = X_injected # why not just this?
     ds_injected.X = torch.where(dataset.torch_mask, dataset.X, X_injected).to(device)
     ds_injected.prot_means = np.nanmean(ds_injected.X.detach().cpu(), axis=0, keepdims=1)

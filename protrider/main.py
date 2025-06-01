@@ -49,6 +49,10 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
 
     """
 
+    return run(config, input_intensities, sample_annotation, out_dir)
+
+
+def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None):
     ## Load config with params
     config = yaml.load(open(config), Loader=yaml.FullLoader)
 
@@ -104,8 +108,6 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
         np.random.seed(config['seed'])
 
     if config.get('cross_val', False):
-        if config['find_q_method'] != 'OHT':
-            raise ValueError('Cross-validation only implemented with OHT method')
         result, model_info, df_folds = run_experiment_cv(input_intensities, config, sample_annotation,
                                                          log_func, base_fn, device=device)
     else:

@@ -7,27 +7,28 @@ import math
 import numpy as np
 import logging
 import torch.nn.functional as F
+
 logger = logging.getLogger(__name__)
 
 
 class ConditionalEnDecoder(nn.Module):
 
-    def __init__(self, in_dim, out_dim, is_encoder, h_dim=None, n_layers=1, 
-                 prot_means=None, presence_absence=False):
+    def __init__(self, in_dim, out_dim, is_encoder, h_dim=None, n_layers=1,
+                 prot_means=None):
         super().__init__()
         self.prot_means = prot_means
-        
+
         self.is_encoder = is_encoder
         self.n_layers = n_layers
-        
+
         last_layer = None
         if n_layers == 1:
             # if the model is a decoder, then we want to have trainable bias
             last_layer = nn.Linear(in_dim,
-                                   out_dim, 
+                                   out_dim,
                                    bias=not is_encoder or prot_means is None)
             self.model = last_layer
-        
+
         elif n_layers > 1:
             modules = []
             modules.append(nn.Linear(in_dim, h_dim, bias=False))
@@ -39,14 +40,14 @@ class ConditionalEnDecoder(nn.Module):
             last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder or prot_means is None)
             modules.append(last_layer)
             self.model = nn.Sequential(*modules)
-        
+
         # if the model is a decoder, then the bias should be initialized to the protein means
         if not is_encoder and prot_means is not None:
             last_layer.bias.data.copy_(prot_means).squeeze(0)
 
     def forward(self, x, cond=None):
         if self.is_encoder and (self.prot_means is not None):
-            x = x - self.prot_means  
+            x = x - self.prot_means
         if cond is not None:
             x = torch.cat([x, cond], -1)
         return self.model(x)
@@ -63,40 +64,41 @@ class ProtriderAutoencoder(nn.Module):
                  prot_means=None, presence_absence=False):
         super().__init__()
         self.n_layers = n_layers
+        self.presence_absence = presence_absence
         self.encoder = ConditionalEnDecoder(in_dim=in_dim + n_cov,
                                             out_dim=latent_dim, h_dim=h_dim, n_layers=n_layers,
-                                            is_encoder=True, prot_means=prot_means,
-                                            presence_absence=presence_absence
-                                           )
+                                            is_encoder=True, prot_means=prot_means)
 
         self.decoder = ConditionalEnDecoder(in_dim=latent_dim + n_cov,
                                             out_dim=in_dim,
                                             h_dim=h_dim, n_layers=n_layers,
-                                            is_encoder=False, prot_means=prot_means,
-                                            presence_absence=presence_absence
-                                           )
+                                            is_encoder=False, prot_means=prot_means)
 
-    def forward(self, x, cond=None):
+    def forward(self, x, mask, cond=None):
+        if self.presence_absence:
+            presence = (~mask).double()
+            x = torch.stack([x, presence])
+            cond = torch.stack([cond, cond])
+
         z = self.encoder(x, cond=cond)
         out = self.decoder(z, cond=cond)
         return out
-       
 
-    def initialize_wPCA(self, Vt_q, prot_means, n_cov=0, presence_absence=False):
+    def initialize_wPCA(self, Vt_q, prot_means, n_cov=0):
         if self.n_layers > 1:
             logger.warning('Initialization only possible for n_layers=1. Going back to random init...')
             return
-        
-        n_prots = prot_means.shape[1] # (1, n_prots)
-        
+
+        n_prots = prot_means.shape[1]  # (1, n_prots)
+
         device = self.encoder.model.weight.device
         Vt_q = torch.from_numpy(Vt_q).to(device)
         stdv = 1. / math.sqrt(n_cov + 1)
-        
+
         ## ENCODER
         self.encoder.model.weight.data.copy_(Vt_q)
         enc_bias = self.encoder.model.bias.data
-        
+
         b = torch.cat([torch.from_numpy(prot_means).to(device),
                            torch.zeros(1,n_cov).to(device)#torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv).to(device)  # alternatively just set to zero
                            ], axis=1)
@@ -118,33 +120,38 @@ def mse_masked(x_hat, x, mask):
     mse_loss_val = masked_loss.nanmean()
     return mse_loss_val
 
-def mse_bce_loss(x_hat, x, mask, lambda_bce, presence_absence, detached=False):
 
-    if presence_absence:
-        presence = (~mask).double()
-        #n = x_hat.shape[1] // 2
-        presence_hat = x_hat[1]       # Predicted presence (0–1)
-        x_hat = x_hat[0]              # Predicted intensities
+class MSEBCELoss(nn.Module):
+    def __init__(self, presence_absence=False, lambda_bce=1.):
+        super().__init__()
+        self.presence_absence = presence_absence
+        self.lambda_bce = lambda_bce
 
-    mse_loss = mse_masked(x_hat, x, mask)
-    if detached:
-        mse_loss = mse_loss.detach().cpu().numpy()
-    
-    if presence_absence:
-        bce_loss = bce_loss = F.binary_cross_entropy(torch.sigmoid(presence_hat), presence)
+    def forward(self, x_hat, x, mask, detached=False):
+        if self.presence_absence:
+            presence = (~mask).double()
+            # n = x_hat.shape[1] // 2
+            presence_hat = x_hat[1]  # Predicted presence (0–1)
+            x_hat = x_hat[0]  # Predicted intensities
+
+        mse_loss = mse_masked(x_hat, x, mask)
         if detached:
-            bce_loss = bce_loss.detach().cpu().numpy()
-        loss = mse_loss + lambda_bce*bce_loss
-    else:
-        bce_loss = None
-        loss = mse_loss
+            mse_loss = mse_loss.detach().cpu().numpy()
 
-    
-    return loss, mse_loss, bce_loss
-    
+        if self.presence_absence:
+            bce_loss = F.binary_cross_entropy(torch.sigmoid(presence_hat), presence)
+            if detached:
+                bce_loss = bce_loss.detach().cpu().numpy()
+            loss = mse_loss + self.lambda_bce * bce_loss
+        else:
+            bce_loss = None
+            loss = mse_loss
 
-def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1, batch_size=None,
-              patience=100, min_delta=0.001, presence_absence=False, lambda_bce=1.):
+        return loss, mse_loss, bce_loss
+
+
+def train_val(train_subset, val_subset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
+              batch_size=None, patience=100, min_delta=0.001):
     # start data;pader
     if batch_size is None:
         batch_size = train_subset.X.shape[0]
@@ -159,26 +166,14 @@ def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3,
     train_losses = []
     val_losses = []
     for epoch in tqdm(range(n_epochs)):
-        train_loss, train_mse_loss, train_bce_loss = _train_iteration(data_loader, model, 
-                                                                      optimizer, presence_absence, lambda_bce)
+        train_loss, train_mse_loss, train_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
 
         if epoch % val_every_nepochs == 0:
             train_losses.append(train_loss)
+            x_hat_val = model(val_subset.X, val_subset.torch_mask, val_subset.cov_one_hot)
+            val_loss, val_mse_loss, val_bce_loss = criterion(x_hat_val, val_subset.X, val_subset.torch_mask)
 
-            if presence_absence:
-                presence = (~val_subset.torck_mask).double()
-                x_in = torch.hstack([val_subset.X, presence])
-            else: 
-                x_in = val_subset.X
-            
-            x_hat_val = model(x_in, 
-                              cond=torch.stack([val_subset.cov_one_hot, val_subset.cov_one_hot]) if presence_absence else val_subset.cov_one_hot
-                             )
-            val_loss, val_mse_loss, val_bce_loss = mse_bce_loss(x_hat_val, val_subset.X, 
-                                                                val_subset.torch_mask, 
-                                                                lambda_bce, presence_absence).detach().cpu().numpy()
-            
-            val_losses.append(val_loss)
+            val_losses.append(val_loss.detach().cpu().numpy())
             logger.debug('[%d] train loss: %.6f' % (epoch + 1, train_loss))
             logger.debug('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
 
@@ -199,9 +194,7 @@ def train_val(train_subset, val_subset, model, n_epochs=100, learning_rate=1e-3,
     return np.array(train_losses), np.array(val_losses)
 
 
-def train(dataset, model,
-          n_epochs=100, learning_rate=1e-3,
-          batch_size=None, presence_absence=False,lambda_bce=1.):
+def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
@@ -212,34 +205,27 @@ def train(dataset, model,
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in tqdm(range(n_epochs)):
-        running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, 
-                                                                            optimizer, presence_absence, lambda_bce)
+        running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
                                                                           running_mse_loss, running_bce_loss))
     return running_loss, running_mse_loss, running_bce_loss
 
 
-def _train_iteration(data_loader, model, optimizer, presence_absence, lambda_bce):
+def _train_iteration(data_loader, model, criterion, optimizer):
     running_loss = 0.0
     running_mse_loss = 0.0
     running_bce_loss = 0.0
-    
+
     n_batches = 0
     for batch_idx, data in enumerate(data_loader):
         x, mask, cov, prot_means = data
-        if presence_absence:
-            presence = (~mask).double()
-            x_in = torch.stack([x, presence]) #torch.hstack([x, presence])
-        else: 
-            x_in = x
-            
+
         # restore grads and compute model out
         optimizer.zero_grad()
-        x_hat = model(x_in, 
-                      cond=torch.stack([cov, cov]) if presence_absence else cov)
-        
-        loss, mse_loss, bce_loss = mse_bce_loss(x_hat, x, mask, lambda_bce, presence_absence)
-        
+        x_hat = model(x, mask, cond=cov)
+
+        loss, mse_loss, bce_loss = criterion(x_hat, x, mask)
+
         # Adjust learning weights
         loss.backward()
         optimizer.step()
