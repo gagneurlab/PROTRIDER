@@ -124,6 +124,8 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                                                                         lambda_bce=config['lambda_presence_absence'],
                                                                         presence_absence=config['presence_absence'])
         logger.info('Final loss: %s, mse loss: %s, bce loss: %s', final_loss, final_mse_loss, final_bce_loss)
+    else:
+        final_loss = init_loss
 
     ## 6. Compute residuals, pvals, zscores
     logger.info('Computing statistics')

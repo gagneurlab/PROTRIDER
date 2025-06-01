@@ -93,8 +93,8 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
     if (config['find_q_method'] == 'OHT') and (config['presence_absence']==True):
         raise ValueError('OHT not implemented with presence/absence analysis yet')
         
-    if (config['presence_absence'] == True) and (config['n_layers']!=1):
-        raise ValueError('Presence absence inclusion is only with 1-layers models possible')
+    #if (config['presence_absence'] == True) and (config['n_layers']!=1):
+    #    raise ValueError('Presence absence inclusion is only with 1-layers models possible')
 
     device = torch.device("cuda" if ((torch.cuda.is_available()) & (config['device'] == 'gpu')) else "cpu")
 
