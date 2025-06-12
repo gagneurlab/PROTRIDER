@@ -9,3 +9,5 @@ optht
 pydeseq2
 scipy
 scikit-learn
+seaborn
+plotnine
