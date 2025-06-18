@@ -21,7 +21,6 @@ setup(
                             'pydeseq2',
                             'scipy',
                             'scikit-learn',
-                            'logging',
                             'pathlib'
                             ],
         url='https://github.com/gagneurlab/PROTRIDER',
