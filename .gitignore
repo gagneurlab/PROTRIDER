@@ -4,4 +4,5 @@ protrider/__pycache__/*
 __pycache__/*
 .ipynb_checkpoints/*
 protrider-simulation/
-output/
+output/*
+logs/*
