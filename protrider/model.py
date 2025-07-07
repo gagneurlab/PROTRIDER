@@ -100,8 +100,8 @@ class ProtriderAutoencoder(nn.Module):
         enc_bias = self.encoder.model.bias.data
 
         b = torch.cat([torch.from_numpy(prot_means).to(device),
-                       torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv).to(device)  # alternatively just set to zero
-                       ], axis=1)
+                           torch.zeros(1,n_cov).to(device)#torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv).to(device)  # alternatively just set to zero
+                           ], axis=1)
         self.encoder.model.bias.data.copy_(-(Vt_q @ b.T).flatten())
 
         ## DECODER weights: (n_prots or n_prots, q+cov), bias: (n_prot)
@@ -111,8 +111,7 @@ class ProtriderAutoencoder(nn.Module):
         self.decoder.model.weight.data.copy_(
             torch.cat([Vt_q.T[:n_prots].to(device),
                        cov_dec_init.to(device)], axis=1)
-        )
-
+        )      
 
 def mse_masked(x_hat, x, mask):
     mse_loss = nn.MSELoss(reduction="none")
