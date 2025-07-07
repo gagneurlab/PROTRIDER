@@ -121,7 +121,7 @@ def _fit_t_base(x, max_df=None, df=None):
         # It will often not converge (e.g. 10% of the cases)
         df, mu, sigma = scipy.stats.t.fit(x[~mask])
         if max_df is not None:
-            df = df if df <= max_df else 10#np.nan
+            df = df if df <= max_df else np.nan
     else:
         _, mu, sigma = scipy.stats.t.fit(x[~mask], fix_df=df)  # fitdistr(x[!mask], densfun = "t", df=df)
 
