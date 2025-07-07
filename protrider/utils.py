@@ -25,6 +25,7 @@ class ModelInfo:
     learning_rate: np.array
     n_epochs: np.array
     test_loss: np.array
+    df0: np.array = None # Degrees of freedom for the t-distribution, if applicable
 
 
 @dataclass
@@ -133,7 +134,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config['lr']),
-                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss))
+                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss), df0=np.array(df0))
     return result, model_info
 
 
@@ -176,6 +177,7 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
     df_presence_list = []
     test_loss_list = []
     q_list = []
+    df0_list = []
     folds_list = []
     ## 2. Loop over folds
     for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
@@ -264,6 +266,7 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
             pvals, Z = get_pvals(df_res_test.values, mu=mu, sigma=sigma, df0=df0, how=config['pval_sided'])
             pvals_list.append(pvals)
             Z_list.append(Z)
+            df0_list.append(df0)
 
     df_res = pd.concat(df_res_list)
     df_out = pd.concat(df_out_list)
@@ -279,13 +282,15 @@ def run_experiment_cv(input_intensities, config, sample_annotation, log_func, ba
         mu, sigma, df0 = fit_residuals(df_res.values, dis=config['pval_dist'])
         pvals, Z = get_pvals(df_res.values, mu=mu, sigma=sigma, df0=df0,
                              how=config['pval_sided'])
+        df0_list = [df0] * len(df_out)  # Repeat df0 for each sample in the output
 
     pvals_adj = adjust_pvals(pvals, method=config["pval_adj"])
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
                              pvals=pvals, Z=Z, pvals_adj=pvals_adj, pseudocount=config['pseudocount'],
                              outlier_threshold=config['outlier_threshold'], base_fn=base_fn)
     model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config['lr']),
-                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(test_loss_list))
+                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(test_loss_list), 
+                           df0=np.array(df0_list))
     return result, model_info, df_folds
 
 

@@ -187,7 +187,7 @@ def _fit_t(res, max_df=100000):
     return mu, sigma, df0
 
 
-def get_pv_t(res, sigma, mu, df0, how='two-sided', max_df=100000):
+def get_pv_t(res, sigma, mu, df0, how='two-sided'):
     # Validate the optional distribution parameters
     if not isinstance(sigma, (int, float)):
         assert len(sigma) == res.shape[

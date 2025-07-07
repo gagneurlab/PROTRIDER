@@ -3,3 +3,5 @@ protrider/__pycache__/*
 *egg-info/*
 __pycache__/*
 .ipynb_checkpoints/*
+protrider-simulation/
+output/
