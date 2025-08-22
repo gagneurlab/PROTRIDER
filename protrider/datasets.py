@@ -67,28 +67,37 @@ class ProtriderDataset(Dataset, PCADataset):
         self.data.columns.name = 'proteinID'
         logger.info(f'Finished reading raw data with shape: {self.data.shape}')
 
-        # replace 0 with NaN (for proteomics intensities)
-        self.data.replace(0, np.nan, inplace=True)
-
-        # filter out proteins with too many NaNs
-        filtered = np.mean(np.isnan(self.data), axis=0)
-        self.data = (self.data.T[filtered <= maxNA_filter]).T
-        logger.info(
-            f"Filtering out {np.sum(filtered > maxNA_filter)} proteins with too many missing values. New shape: {self.data.shape}")
-        self.raw_data = copy.deepcopy(self.data)  ## for storing output
-
-        # normalize data with deseq2
-        self.size_factors = None
-        deseq_out, size_factors = deseq2_norm(self.data.replace(np.nan, 0,
-                                                                inplace=False))
-        ### check that deseq2 worked, otherwise ignore
-        if deseq_out.isna().sum().sum() == 0:
-            self.data = deseq_out
+        if log_func is not None:
+            # replace 0 with NaN (for proteomics intensities)
             self.data.replace(0, np.nan, inplace=True)
-            self.size_factors = size_factors
 
-        # log data
-        self.data = log_func(self.data)
+            # filter out proteins with too many NaNs
+            filtered = np.mean(np.isnan(self.data), axis=0)
+            self.data = (self.data.T[filtered <= maxNA_filter]).T
+            logger.info(
+                f"Filtering out {np.sum(filtered > maxNA_filter)} proteins with too many missing values. New shape: {self.data.shape}")
+            self.raw_data = copy.deepcopy(self.data)  ## for storing output
+
+            # normalize data with deseq2
+            self.size_factors = None
+            deseq_out, size_factors = deseq2_norm(self.data.replace(np.nan, 0,
+                                                                    inplace=False))
+            ### check that deseq2 worked, otherwise ignore
+            if deseq_out.isna().sum().sum() == 0:
+                self.data = deseq_out
+                self.data.replace(0, np.nan, inplace=True)
+                self.size_factors = size_factors
+
+            # log data
+            self.data = log_func(self.data)
+        else:
+            # filter out proteins with too many NaNs
+            filtered = np.mean(np.isnan(self.data), axis=0)
+            self.data = (self.data.T[filtered <= maxNA_filter]).T
+            logger.info(
+                f"Filtering out {np.sum(filtered > maxNA_filter)} proteins with too many missing values. New shape: {self.data.shape}")
+            self.raw_data = copy.deepcopy(self.data)  ## for storing output
+
         #### FINISHED PREPROCESSING
 
         # store protein means

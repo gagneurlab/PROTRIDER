@@ -85,7 +85,7 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
     else:
         if config['log_func_name'] is None:
             logger.warning('No log function passed for preprocessing. \nAssuming data is already log transformed.')
-            log_func = lambda x: x  # id
+            log_func = None
             base_fn = np.exp
         else:
             raise ValueError(f"Log func {config['log_func_name']} not supported.")
