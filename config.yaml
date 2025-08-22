@@ -7,6 +7,7 @@ index_col: "protein_ID"
 # maximum percentage of missing values per protein
 max_allowed_NAs_per_protein: 0.3
 # transformation funtion to apply to the data before model fitting. options are log10, log2, and log
+# set this to null if the data is already log-transformed
 log_func_name: "log"
 
 # names of columns in the sample annotation file to be passed as covariates to the autoencoder.
