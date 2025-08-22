@@ -135,11 +135,12 @@ class ProtriderDataset(Dataset, PCADataset):
             self.covariates = torch.tensor(self.covariates.values)
 
             # one_hot encoding of covariates
+            one_hot = None
             for col in range(self.covariates.shape[1]):
                 one_hot_col = F.one_hot(self.covariates[:, col], num_classes=self.covariates[:, col].max().numpy() + 1)
-                try:
+                if one_hot is not None:
                     one_hot = torch.cat((one_hot, one_hot_col), dim=1)
-                except:
+                else:
                     one_hot = one_hot_col
             self.cov_one_hot = one_hot
         else:
