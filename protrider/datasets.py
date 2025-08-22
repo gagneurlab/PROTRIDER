@@ -44,18 +44,20 @@ class PCADataset(ABC):
 
 
 class ProtriderDataset(Dataset, PCADataset):
-    def __init__(self, csv_file, index_col, sa_file=None,
+    def __init__(self, input_intensities, index_col, sa_file=None,
                  cov_used=None, log_func=np.log,
                  maxNA_filter=0.3, device=torch.device('cpu')):
         super().__init__()
 
         # read csv
-        file_extension = Path(csv_file).suffix
+        file_extension = Path(input_intensities).suffix
         if file_extension == '.csv':
-            self.data = pd.read_csv(csv_file).set_index(index_col)
+            self.data = pd.read_csv(input_intensities).set_index(index_col)
         elif file_extension == '.tsv':
-            self.data = pd.read_csv(csv_file,
+            self.data = pd.read_csv(input_intensities,
                                     sep='\t').set_index(index_col)
+        elif file_extension == '.parquet':
+            self.data = pd.read_parquet(input_intensities).set_index(index_col)
         else:
             raise ValueError(f"Unsupported file type: {file_extension}")
 
@@ -250,7 +252,7 @@ class ProtriderCVGenerator(ABC):
         self.log_func = log_func
 
         # Initialize the dataset
-        self.dataset = ProtriderDataset(csv_file=input_intensities,
+        self.dataset = ProtriderDataset(input_intensities=input_intensities,
                                         index_col=index_col,
                                         sa_file=sample_annotation,
                                         cov_used=cov_used,

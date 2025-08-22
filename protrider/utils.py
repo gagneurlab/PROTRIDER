@@ -62,7 +62,7 @@ def run_experiment(input_intensities, config, sample_annotation, log_func, base_
 
     ## 1. Initialize dataset
     logger.info('Initializing dataset')
-    dataset = ProtriderDataset(csv_file=input_intensities,
+    dataset = ProtriderDataset(input_intensities=input_intensities,
                                index_col=config['index_col'],
                                sa_file=sample_annotation,
                                cov_used=config['cov_used'],
