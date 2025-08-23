@@ -52,7 +52,7 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
     return run(config, input_intensities, sample_annotation, out_dir)
 
 
-def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None):
+def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None, skip_summary=False):
     ## Load config with params
     config = yaml.load(open(config), Loader=yaml.FullLoader)
 
@@ -115,17 +115,23 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
                                              device=device)
         df_folds = None
 
+    if config['out_dir'] is not None:
+        _write_results(result=result, model_info=model_info, out_dir=config['out_dir'],
+                       df_folds=df_folds, config=config)
+
+    if skip_summary:
+        return None
+    
     summary = _report_summary(result, config['pval_dist'], config['outlier_threshold'],
                               config['report_all'])
-
-    if config['out_dir'] is not None:
-        _write_results(summary=summary, result=result, model_info=model_info, out_dir=config['out_dir'],
-                       df_folds=df_folds, config=config)
+    summary_p = f'{config['out_dir']}/protrider_summary.csv'
+    summary.to_csv(summary_p, index=None)
+    logger.info(f'Saved output summary with shape {summary.shape} to <{summary_p}>---')
 
     return summary
 
 
-def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, config: dict, df_folds: DataFrame = None):
+def _write_results(result: Result, model_info: ModelInfo, out_dir, config: dict, df_folds: DataFrame = None):
     logger.info('=== Saving output ===')
     out_dir = out_dir
 
@@ -203,9 +209,6 @@ def _write_results(summary, result: Result, model_info: ModelInfo, out_dir, conf
         df_folds.to_csv(out_p, header=True, index=True)
         logger.info(f"Saved folds to {out_p}")
 
-    out_p = f'{out_dir}/protrider_summary.csv'
-    summary.to_csv(out_p, index=None)
-    logger.info(f'Saved output summary with shape {summary.shape} to <{out_p}>---')
 
 
 def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, include_all=False):
