@@ -124,7 +124,7 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
     
     summary = _report_summary(result, config['pval_dist'], config['outlier_threshold'],
                               config['report_all'])
-    summary_p = f'{config['out_dir']}/protrider_summary.csv'
+    summary_p = f"{config['out_dir']}/protrider_summary.csv"
     summary.to_csv(summary_p, index=None)
     logger.info(f'Saved output summary with shape {summary.shape} to <{summary_p}>---')
 
