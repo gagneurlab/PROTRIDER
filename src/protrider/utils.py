@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple, List
+from typing import Union, Tuple
 from pandas import DataFrame
 from dataclasses import dataclass
 from pathlib import Path
@@ -320,7 +320,7 @@ def _plot_loss_history(train_losses, val_losses, fold, out_dir):
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss):
-    X_out = model(dataset.X, dataset.torch_mask, cond=dataset.cov_one_hot)
+    X_out = model(dataset.X, dataset.torch_mask, cond=dataset.covariates)
 
     loss, mse_loss, bce_loss = criterion(X_out, dataset.X, dataset.torch_mask, detached=True)
     df_presence = None

@@ -7,7 +7,7 @@ import copy
 
 from .stats import get_pvals, fit_residuals
 from .model import ProtriderAutoencoder, train, MSEBCELoss  # masked
-from .datasets import ProtriderSubset
+from .datasets import ProtriderSubset, ProtriderDataset
 import logging
 
 __all__ = ['init_model', 'find_latent_dim']
@@ -15,7 +15,7 @@ __all__ = ['init_model', 'find_latent_dim']
 logger = logging.getLogger(__name__)
 
 
-def find_latent_dim(dataset, method='OHT',
+def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     inj_freq=1e-3, inj_mean=3, inj_sd=1.6,
                     init_wPCA=True, n_layers=1, h_dim=None,
                     n_epochs=100, learning_rate=1e-6, batch_size=None,
@@ -42,7 +42,7 @@ def find_latent_dim(dataset, method='OHT',
             model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device,
                                presence_absence=presence_absence)
             criterion = MSEBCELoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
-            X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.cov_one_hot)
+            X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.covariates)
             loss, mse_loss, bce_loss = criterion(X_out, injected_dataset.X, injected_dataset.torch_mask, detached=True)
             logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s',
                         loss, mse_loss, bce_loss)
@@ -52,7 +52,7 @@ def find_latent_dim(dataset, method='OHT',
             logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
                         loss, mse_loss, bce_loss)
             X_out = model(injected_dataset.X, injected_dataset.torch_mask,
-                          cond=injected_dataset.cov_one_hot).detach().cpu().numpy()
+                          cond=injected_dataset.covariates).detach().cpu().numpy()
             if presence_absence:
                 presence_out = X_out[1]
                 X_out = X_out[0]
@@ -87,7 +87,7 @@ def find_latent_dim(dataset, method='OHT',
 
 def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, device=torch.device('cpu'),
                presence_absence=False):
-    n_cov = dataset.cov_one_hot.shape[1]
+    n_cov = dataset.covariates.shape[1]
     n_prots = dataset.X.shape[1]
     model = ProtriderAutoencoder(in_dim=n_prots, latent_dim=latent_dim, n_layers=n_layer, h_dim=h_dim, n_cov=n_cov,
                                  prot_means=None if init_wPCA else dataset.prot_means_torch,
