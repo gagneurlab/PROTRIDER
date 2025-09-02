@@ -14,7 +14,7 @@ Using pip and conda environments
 We recommend installing and running PROTRIDER on a dedicated conda environment. To create and activate the conda environment run the following commands:
 
 ```
-conda create --name protrider_env python=3.8
+conda create --name protrider_env python=3.13
 conda activate protrider_env
 ```
 
