@@ -50,7 +50,7 @@ class ProtriderDataset(Dataset, PCADataset):
 
         # Read and preprocess protein intensities
         unfiltered_data = read_protein_intensities(input_intensities, index_col)
-        self.processed_data, self.raw_data, self.size_factors = preprocess_protein_intensities(
+        self.data, self.raw_data, self.size_factors = preprocess_protein_intensities(
             unfiltered_data, log_func, maxNA_filter
         )
 
@@ -62,11 +62,11 @@ class ProtriderDataset(Dataset, PCADataset):
                 self.centered_covariates_noNA = torch.from_numpy(self.centered_covariates_noNA)
             except ValueError:
                 logger.warning("No valid covariates found after parsing.")
-                self.covariates = torch.empty(self.X.shape[0], 0)
-                self.centered_covariates_noNA = torch.empty(self.X.shape[0], 0)
+                self.covariates = torch.empty(self.data.shape[0], 0)
+                self.centered_covariates_noNA = torch.empty(self.data.shape[0], 0)
         else:
-            self.covariates = torch.empty(self.X.shape[0], 0)
-            self.centered_covariates_noNA = torch.empty(self.X.shape[0], 0)
+            self.covariates = torch.empty(self.data.shape[0], 0)
+            self.centered_covariates_noNA = torch.empty(self.data.shape[0], 0)
 
         
         # store protein means
