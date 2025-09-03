@@ -7,3 +7,4 @@ protrider-simulation/
 output/*
 logs/*
 .vscode/*
+.pytest_cache/*
