@@ -70,7 +70,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                                      dis='gaussian',
                                      )
                 auprc = _get_prec_recall(pvals, outlier_mask)
-                logger.info(f"\t==> q = {latent_dim}: AUCPR = {auprc}")
+                logger.info(f"\t==> q = {latent_dim}: AUPRC = {auprc}")
                 gridSearch_results.append([latent_dim, auprc])
 
         df_gs = pd.DataFrame(gridSearch_results, columns=["encod_dim", "aucpr"])
