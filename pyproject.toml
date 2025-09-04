@@ -27,7 +27,9 @@ dependencies = [
     'pydeseq2',
     'scipy',
     'scikit-learn',
-    'pathlib'
+    'pathlib',
+    'seaborn',
+    'plotnine'
 ]
 
 [project.urls]

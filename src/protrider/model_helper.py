@@ -23,11 +23,11 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     out_dir=None, device=torch.device('cpu'),
                     presence_absence=False, lambda_bce=1.
                     ):
-    if method == "OHT":
+    if method == "OHT" or method == "oht":
         logger.info('OHT method for finding latent dim')
         dataset.perform_svd()
         q = dataset.find_enc_dim_optht()
-    else:
+    elif method == "gs":
         logger.info('Grid search method for finding latent dim')
         logger.info('Injecting outliers')
         inj_freq = float(inj_freq)
@@ -48,7 +48,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                         loss, mse_loss, bce_loss)
 
             logger.info('\tFitting model')
-            loss, mse_loss, bce_loss = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size)
+            loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size)
             logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
                         loss, mse_loss, bce_loss)
             X_out = model(injected_dataset.X, injected_dataset.torch_mask,
@@ -81,7 +81,9 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
             out_p = f'{out_dir}/grid_search.csv'
             df_gs.to_csv(out_p, header=True, index=True)
             logger.info(f"\t Saved grid_search to {out_p}")
-
+    else:
+        print("Setting q is a fixed user-provided value")
+        q = int(method)
     return q
 
 

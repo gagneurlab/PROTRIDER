@@ -1,7 +1,11 @@
 # path to output directory to store result files
 out_dir: output
+
 # column name in the input file indicating the column name containing the protein names/IDs
 index_col: "protein_ID"
+
+# csv file containing sample annotations
+# sample_annotation: sample_annotation.csv
 
 ## Preprocessing params
 # maximum percentage of missing values per protein
@@ -35,7 +39,7 @@ n_epochs: 100 # number of training epochs
 lr: 1e-4 # learning rate
 batch_size:
 
-find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs
+find_q_method: "OHT" # option to find latent space dimension. Options: OHT, gs or an integer value
 init_pca: True # PCA initialization
 h_dim: # hidden dimension, only for n_layers>1
 
