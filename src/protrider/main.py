@@ -9,8 +9,10 @@ import click
 from pandas import DataFrame
 import torch
 import logging
+import os
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
+from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample, _plot_training_loss, _plot_expected_vs_observed
 
 logger = logging.getLogger(__name__)
 
@@ -24,21 +26,59 @@ logger = logging.getLogger(__name__)
     type=click.Path(exists=True, dir_okay=False),
 )
 @click.option(
-    "--input_intensities",
-    help="csv input file containing intensities. Columns are samples and rows are proteins. See example here: FIXME",
-    type=click.Path(exists=True, dir_okay=False),
+    '--run_pipeline',
+    is_flag=True,
+    help="Run PROTRIDER pipeline"
 )
 @click.option(
-    "--sample_annotation",
-    help="csv file containing sample annotations",
-    type=click.Path(exists=True, dir_okay=False),
+    '--plot_heatmap',
+    is_flag=True,
+    help="Plot the correlation heatmaps"
 )
 @click.option(
-    "--out_dir",
-    help="Output directory to save results",
-    type=click.Path(exists=False, dir_okay=True, file_okay=False),
+    '--plot_title',
+    type=str,
+    default="",
+    help="Title of the plots"
 )
-def main(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None) -> None:
+@click.option(
+    '--plot_pvals',
+    is_flag=True,
+    help="Plot the pvalue plots"
+)
+@click.option(
+    '--plot_encoding_dim',
+    is_flag=True,
+    help="Plot the endocing dimension search plot"
+)
+@click.option(
+    '--plot_aberrant_per_sample',
+    is_flag=True,
+    help="Plot nubmer of aberrant proteins per sample"
+)
+@click.option(
+    '--plot_training_loss',
+    is_flag=True,
+    help="Plot training loss history"
+)
+@click.option(
+    '--plot_expected_vs_observed',
+    is_flag=True,
+    help="Plot expected vs observed protein intensitiy for protein protein_id"
+)
+@click.option(
+    '--protein_id',
+    type=str,
+    help="Id of the protein to plot"
+)
+@click.option(
+    '--plot_all',
+    is_flag=True,
+    help="Plot training loss, nubmer of aberrant proteins per sample, pvalue plots and endocing dimension search"
+)
+def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = "", plot_pvals: bool = False, 
+         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_training_loss: bool = False, 
+         plot_expected_vs_observed: bool = False, protein_id: str = None, plot_all: bool = False) -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -48,14 +88,49 @@ def main(config, input_intensities: str, sample_annotation: str = None, out_dir:
     - Official code repository: https://github.com/gagneurlab/PROTRIDER
 
     """
+    print(plot_title)
 
     return run(config, input_intensities, sample_annotation, out_dir)
 
 
 def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None, skip_summary=False):
     ## Load config with params
-    config = yaml.load(open(config), Loader=yaml.FullLoader)
+    config = yaml.load(open(config), Loader=yaml.FullLoader) 
+    if run_pipeline is True:
+        logger.info('Runing PROTRIDER pipeline')
+        return run(config)
+    elif plot_heatmap is True:
+        # TODO add plot_heatmap
+        logger.info("plotting correlation_heatmaps is not implemented yet.")
+        return
+    elif plot_pvals is True:
+        logger.info("plotting pvalue plots")
+        _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
+    elif plot_encoding_dim is True:
+         logger.info("plotting encoding dimension search plot")
+         _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
+    elif plot_aberrant_per_sample is True:
+        logger.info("plotting number of aberrant proteins per sample")
+        _plot_aberrant_per_sample(config["out_dir"], plot_title)
+    elif plot_training_loss is True:
+        logger.info("plotting training loss")
+        _plot_training_loss(config["out_dir"], plot_title)
+    elif plot_expected_vs_observed is True:
+        if protein_id is None:
+            raise ValueError("protein_id is required for plot_expected_vs_observed function.")
+        logger.info(f"plotting expected vs observed protein intensitiy for protein {protein_id}")
+        _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
+    elif plot_all is True:
+        _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
+        _plot_aberrant_per_sample(config["out_dir"], plot_title)
+        _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
+        _plot_training_loss(config["out_dir"], plot_title)
+        if protein_id is None:
+            raise ValueError("protein_id is required for plot_expected_vs_observed function.")
+        _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
 
+
+def run(config):
     if config['verbose']:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
     else:
@@ -66,12 +141,8 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
 
     config = defaultdict(lambda: None, config)
 
-    if out_dir is not None:
-        config['out_dir'] = out_dir
-
-    if config['out_dir'] is not None:
-        path = Path(config['out_dir'])
-        path.mkdir(parents=True, exist_ok=True)
+    path = Path(config['out_dir'])
+    path.mkdir(parents=True, exist_ok=True)
 
     if config['log_func_name'] == "log2":
         log_func = np.log2
@@ -107,11 +178,9 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
         np.random.seed(config['seed'])
 
     if config.get('cross_val', False):
-        result, model_info, df_folds = run_experiment_cv(input_intensities, config, sample_annotation,
-                                                         log_func, base_fn, device=device)
+        result, model_info, df_folds = run_experiment_cv(config, log_func, base_fn, device=device)
     else:
-        result, model_info, = run_experiment(input_intensities, config, sample_annotation, log_func, base_fn,
-                                             device=device)
+        result, model_info, = run_experiment(config, log_func, base_fn, device=device)
         df_folds = None
 
     if config['out_dir'] is not None:
@@ -158,6 +227,11 @@ def _write_results(result: Result, model_info: ModelInfo, out_dir, config: dict,
     out_p = f'{out_dir}/pvals.csv'
     result.df_pvals.T.to_csv(out_p, header=True, index=True)
     logger.info(f"Saved P-values to {out_p}")
+    
+    # left-sided p-values
+    out_p = f'{out_dir}/pvals_one_sided.csv'
+    result.df_pvals_one_sided.T.to_csv(out_p, header=True, index=True)
+    logger.info(f"Saved left-sided P-values to {out_p}")
 
     # p-values adj
     out_p = f'{out_dir}/pvals_adj.csv'
@@ -198,6 +272,17 @@ def _write_results(result: Result, model_info: ModelInfo, out_dir, config: dict,
         model_info_dict = {k: np.array([v]) for k, v in model_info_dict.items()}
 
     folds = np.arange(len(model_info_dict['q']))
+    if df_folds is None:
+        train_losses = model_info_dict.pop("train_losses")
+        train_losses_df = pd.DataFrame({
+            'epoch': range(1, len(train_losses[0]) + 1),
+            'train_loss': train_losses[0],
+        }) 
+        out_p = f'{out_dir}/train_losses.csv'
+        train_losses_df.to_csv(out_p, header=True, index=False)
+        logger.info(f"Saved training losses to {out_p}")
+    
+    out_p = f'{out_dir}/additional_info.csv'
     df_info = pd.DataFrame(model_info_dict, index=pd.Index(folds, name='fold'))
     df_info.to_csv(out_p, header=True, index=True)
     logger.info(f"Saved additional input to {out_p}")
