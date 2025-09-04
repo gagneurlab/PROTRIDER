@@ -90,27 +90,23 @@ class ProtriderAutoencoder(nn.Module):
             logger.warning('Initialization only possible for n_layers=1. Going back to random init...')
             return
 
-        n_prots = prot_means.shape[1]  # (1, n_prots)
-
         device = self.encoder.model.weight.device
-        Vt_q = torch.from_numpy(Vt_q).to(device)
-        stdv = 1. / math.sqrt(n_cov + 1)
+        Vt_q = torch.from_numpy(Vt_q).to(device) # (q, n_prots)
 
-        ## ENCODER
-        self.encoder.model.weight.data.copy_(Vt_q)
-        enc_bias = self.encoder.model.bias.data
+        ## ENCODER weights: (q, n_prots + n_cov), bias: (q)
+        cov_enc_init = self.encoder.model.weight.data[:, 0:n_cov]
+        self.encoder.model.weight.data.copy_(
+            torch.cat([Vt_q.to(device),
+                       cov_enc_init.to(device)], axis=1)
+        )
 
-        b = torch.cat([torch.from_numpy(prot_means).to(device),
-                           torch.zeros(1,n_cov).to(device)#torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv).to(device)  # alternatively just set to zero
-                           ], axis=1)
-        self.encoder.model.bias.data.copy_(-(Vt_q @ b.T).flatten())
+        self.encoder.model.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
 
-        ## DECODER weights: (n_prots or n_prots, q+cov), bias: (n_prot)
+        ## DECODER weights: (n_prots, q + n_cov), bias: (n_prot)
         self.decoder.model.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
-
-        cov_dec_init = self.decoder.model.weight.data.uniform_(-stdv, stdv)[:, 0:n_cov]
+        cov_dec_init = self.decoder.model.weight.data[:, 0:n_cov]
         self.decoder.model.weight.data.copy_(
-            torch.cat([Vt_q.T[:n_prots].to(device),
+            torch.cat([Vt_q.T.to(device),
                        cov_dec_init.to(device)], axis=1)
         )      
 

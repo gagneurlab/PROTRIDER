@@ -17,27 +17,19 @@ class PCADataset(ABC):
     def __init__(self):
         # centered log data around the protein means
         self.centered_log_data_noNA = None
-        # one hot encoding of covariates
-        self.centered_covariates_noNA = None
         self.U = None
         self.s = None
         self.Vt = None
 
-    @property
-    def svd_input(self):
-        return np.hstack([self.centered_log_data_noNA, self.centered_covariates_noNA])
-
     def perform_svd(self):
-        if self.centered_covariates_noNA is not None:
-            logger.warning('You are using SVD with covariates. SVD and Optimal Hard Thresholding assume roughly continuous, Gaussian-distributed data. Binary/one-hot features violate this assumption.')
-        self.U, self.s, self.Vt = np.linalg.svd(self.svd_input, full_matrices=False)
+        self.U, self.s, self.Vt = np.linalg.svd(self.centered_log_data_noNA, full_matrices=False)
         logger.info(f'Finished fitting SVD with shapes U: {self.U.shape}, s: {self.s.shape}, Vt: {self.Vt.shape}')
 
     def find_enc_dim_optht(self):
         if self.s is None:
             self.perform_svd()
 
-        q = optht(self.svd_input, sv=self.s, sigma=None)
+        q = optht(self.centered_log_data_noNA, sv=self.s, sigma=None)
         return q
 
 

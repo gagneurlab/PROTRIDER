@@ -78,11 +78,11 @@ def _process_covariates(cov_data):
             na_indicator_covs.append(na_indicator)
         
         # Process based on data type
-        if _is_numeric_dtype(series.dtype):
+        if _is_numeric_dtype(series.dtype) and series.dtype != bool:
             numerical_covs.append(series.to_frame())
         else:
             # One-hot encode categorical variables
-            categorical_encoded = pd.get_dummies(series, dummy_na=False, prefix=col_name)
+            categorical_encoded = pd.get_dummies(series, drop_first=True, dummy_na=False, prefix=col_name)
             categorical_covs.append(categorical_encoded)
     
     # Log covariate counts
@@ -105,7 +105,6 @@ def _combine_covariates(processed_covariates):
     # Process numerical covariates
     if processed_covariates['numerical']:
         numerical_data = pd.concat(processed_covariates['numerical'], axis=1).values
-        
         # Center numerical data and handle NAs
         means = np.nanmean(numerical_data, axis=0, keepdims=True)
         centered_numerical = numerical_data - means

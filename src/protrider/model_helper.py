@@ -93,7 +93,6 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, devic
                                  prot_means=None if init_wPCA else dataset.prot_means_torch,
                                  presence_absence=presence_absence)
     model.double().to(device)
-
     if init_wPCA:
         logger.info('\tInitializing model weights with PCA')
         dataset.perform_svd()
