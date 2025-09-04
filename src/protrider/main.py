@@ -90,8 +90,11 @@ def run(config, input_intensities: str, sample_annotation: str = None, out_dir: 
         else:
             raise ValueError(f"Log func {config['log_func_name']} not supported.")
 
-    if (config['find_q_method'] == 'OHT') and (config['presence_absence']==True):
-        raise ValueError('OHT not implemented with presence/absence analysis yet')
+    if (config['find_q_method'] == 'OHT') and (len(config.get('cov_used', [])) > 0):
+        logger.warning('OHT has not been evaluated with covariates yet')
+
+    if (config['find_q_method'] == 'OHT') and config['presence_absence']:
+        logger.warning('OHT has not been evaluated on presence/absence analysis yet')
         
     #if (config['presence_absence'] == True) and (config['n_layers']!=1):
     #    raise ValueError('Presence absence inclusion is only with 1-layers models possible')
