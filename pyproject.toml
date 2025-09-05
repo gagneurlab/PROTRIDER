@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "protrider"
+version='1.0'
+description = "PROTRIDER - Protein outlier detection method"
+authors = [
+    { name = "Ines Scheller"},
+    { name = "Daniela Klaproth-Andrade", email = "daniela.andrade@tum.de"},
+    { name = "George Tsitsiridis"},
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "" }
+keywords = ["olink", "tools", "ukb", "outliers"]
+dependencies = [
+    'click',
+    'numpy',
+    'pandas',
+    'pyaml',
+    'pathlib',
+    'torch',
+    'tqdm',
+    'optht',
+    'pydeseq2',
+    'scipy',
+    'scikit-learn',
+    'pathlib',
+    'seaborn',
+    'plotnine'
+]
+
+[project.urls]
+Homepage = "https://github.com/gagneurlab/PROTRIDER"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "cython"
+]
+
+[project.scripts]
+protrider = "protrider.main:cli"

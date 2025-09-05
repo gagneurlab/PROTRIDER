@@ -7,6 +7,7 @@ import math
 import numpy as np
 import logging
 import torch.nn.functional as F
+from .datasets import ProtriderSubset
 
 logger = logging.getLogger(__name__)
 
@@ -89,27 +90,23 @@ class ProtriderAutoencoder(nn.Module):
             logger.warning('Initialization only possible for n_layers=1. Going back to random init...')
             return
 
-        n_prots = prot_means.shape[1]  # (1, n_prots)
-
         device = self.encoder.model.weight.device
-        Vt_q = torch.from_numpy(Vt_q).to(device)
-        stdv = 1. / math.sqrt(n_cov + 1)
+        Vt_q = torch.from_numpy(Vt_q).to(device) # (q, n_prots)
 
-        ## ENCODER
-        self.encoder.model.weight.data.copy_(Vt_q)
-        enc_bias = self.encoder.model.bias.data
+        ## ENCODER weights: (q, n_prots + n_cov), bias: (q)
+        cov_enc_init = self.encoder.model.weight.data[:, 0:n_cov]
+        self.encoder.model.weight.data.copy_(
+            torch.cat([Vt_q.to(device),
+                       cov_enc_init.to(device)], axis=1)
+        )
 
-        b = torch.cat([torch.from_numpy(prot_means).to(device),
-                           torch.zeros(1,n_cov).to(device)#torch.FloatTensor(1, n_cov).uniform_(-stdv, stdv).to(device)  # alternatively just set to zero
-                           ], axis=1)
-        self.encoder.model.bias.data.copy_(-(Vt_q @ b.T).flatten())
+        self.encoder.model.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
 
-        ## DECODER weights: (n_prots or n_prots, q+cov), bias: (n_prot)
+        ## DECODER weights: (n_prots, q + n_cov), bias: (n_prot)
         self.decoder.model.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
-
-        cov_dec_init = self.decoder.model.weight.data.uniform_(-stdv, stdv)[:, 0:n_cov]
+        cov_dec_init = self.decoder.model.weight.data[:, 0:n_cov]
         self.decoder.model.weight.data.copy_(
-            torch.cat([Vt_q.T[:n_prots].to(device),
+            torch.cat([Vt_q.T.to(device),
                        cov_dec_init.to(device)], axis=1)
         )      
 
@@ -150,7 +147,7 @@ class MSEBCELoss(nn.Module):
         return loss, mse_loss, bce_loss
 
 
-def train_val(train_subset, val_subset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
+def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
               batch_size=None, patience=100, min_delta=0.001):
     # start data;pader
     if batch_size is None:
@@ -170,7 +167,7 @@ def train_val(train_subset, val_subset, model, criterion, n_epochs=100, learning
 
         if epoch % val_every_nepochs == 0:
             train_losses.append(train_loss)
-            x_hat_val = model(val_subset.X, val_subset.torch_mask, val_subset.cov_one_hot)
+            x_hat_val = model(val_subset.X, val_subset.torch_mask, cond=val_subset.covariates)
             val_loss, val_mse_loss, val_bce_loss = criterion(x_hat_val, val_subset.X, val_subset.torch_mask)
 
             val_losses.append(val_loss.detach().cpu().numpy())
@@ -203,12 +200,13 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
                                               shuffle=True)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
+    train_losses = []
     for epoch in tqdm(range(n_epochs)):
         running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
                                                                           running_mse_loss, running_bce_loss))
-    return running_loss, running_mse_loss, running_bce_loss
+        train_losses.append(running_loss)
+    return running_loss, running_mse_loss, running_bce_loss, train_losses
 
 
 def _train_iteration(data_loader, model, criterion, optimizer):
