@@ -42,3 +42,6 @@ dev = [
     "pytest-xdist",
     "cython"
 ]
+
+[project.scripts]
+protrider = "protrider.main:cli"

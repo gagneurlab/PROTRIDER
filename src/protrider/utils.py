@@ -12,7 +12,7 @@ from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
 from .stats import get_pvals, fit_residuals, adjust_pvals
 from .model_helper import find_latent_dim, init_model
-from .plots import _plot_cv_loss
+from .plots import plot_cv_loss
 
 __all__ = ["ModelInfo", "Result", "run_experiment", "run_experiment_cv"]
 
@@ -26,8 +26,8 @@ class ModelInfo:
     learning_rate: np.array
     n_epochs: np.array
     test_loss: np.array
-    df0: np.array = None # Degrees of freedom for the t-distribution, if applicable
     train_losses: np.array
+    df0: np.array = None # Degrees of freedom for the t-distribution, if applicable
 
 
 @dataclass
@@ -48,7 +48,7 @@ class Result:
     n_out_total: int
 
 
-def run_experiment(config, log_func, base_fn, device) -> Tuple[Result, ModelInfo]:
+def run_experiment(input_intensities, config, sample_annotation, log_func, base_fn, device, out_dir) -> Tuple[Result, ModelInfo]:
     """
     Perform protein outlier detection in a single run.
     Args:
@@ -64,7 +64,7 @@ def run_experiment(config, log_func, base_fn, device) -> Tuple[Result, ModelInfo
     logger.info('Initializing dataset')
     dataset = ProtriderDataset(input_intensities=input_intensities,
                                index_col=config['index_col'],
-                               sa_file=config['sample_annotation'],
+                               sa_file=sample_annotation,
                                cov_used=config['cov_used'],
                                log_func=log_func,
                                maxNA_filter=config['max_allowed_NAs_per_protein'],
@@ -85,7 +85,7 @@ def run_experiment(config, log_func, base_fn, device) -> Tuple[Result, ModelInfo
                         batch_size=config['batch_size'],
                         pval_sided=config['pval_sided'],
                         pval_dist=config['pval_dist'],
-                        out_dir=config['out_dir'],
+                        out_dir=out_dir,
                         device=device,
                         presence_absence=config['presence_absence'],
                         lambda_bce=config['lambda_presence_absence']
@@ -114,7 +114,7 @@ def run_experiment(config, log_func, base_fn, device) -> Tuple[Result, ModelInfo
     if config['autoencoder_training']:
         logger.info('Fitting model')
         ## 5. Train model
-        running_loss, running_mse_loss, running_bce_loss, train_losses = train(dataset, model, criterion, n_epochs=config['n_epochs'], learning_rate=float(config['lr']),
+        _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config['n_epochs'], learning_rate=float(config['lr']),
               batch_size=config['batch_size'])
         df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(dataset, model, criterion)
         logger.info('Final loss: %s, mse loss: %s, bce loss: %s', final_loss, final_mse_loss, final_bce_loss)
@@ -145,11 +145,12 @@ def run_experiment(config, log_func, base_fn, device) -> Tuple[Result, ModelInfo
                              pseudocount=config['pseudocount'], outlier_threshold=config['outlier_threshold'],
                              base_fn=base_fn)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config['lr']),
-                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss), df0=np.array(df0), train_losses=train_losses)
+                           n_epochs=np.array(config['n_epochs']), test_loss=np.array(final_loss), 
+                           train_losses=np.array(train_losses))
     return result, model_info
 
 
-def run_experiment_cv(config, log_func, base_fn, device) -> Tuple[
+def run_experiment_cv(input_intensities, config, sample_annotation, log_func, base_fn, device, out_dir) -> Tuple[
     Result, ModelInfo, DataFrame]:
     """
     Perform protein outlier detection with cross-validation.
@@ -170,11 +171,11 @@ def run_experiment_cv(config, log_func, base_fn, device) -> Tuple[
     ## 1. Initialize cross validation generator
     logger.info('Initializing cross validation')
     if config.get('n_folds', None) is not None:
-        cv_gen = ProtriderKfoldCVGenerator(config['input_intensities'], config['sample_annotation'], config['index_col'],
+        cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config['index_col'],
                                            config['cov_used'], config['max_allowed_NAs_per_protein'], log_func,
                                            num_folds=config['n_folds'], device=device)
     else:
-        cv_gen = ProtriderLOOCVGenerator(config['input_intensities'], config['sample_annotation'], config['index_col'], config['cov_used'],
+        cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config['index_col'], config['cov_used'],
                                          config['max_allowed_NAs_per_protein'], log_func, device=device)
     dataset = cv_gen.dataset
     criterion = MSEBCELoss(presence_absence=config['presence_absence'], lambda_bce=config['lambda_presence_absence'])
@@ -212,7 +213,7 @@ def run_experiment_cv(config, log_func, base_fn, device) -> Tuple[
                             batch_size=config['batch_size'],
                             pval_sided=config['pval_sided'],
                             pval_dist=config['pval_dist'],
-                            out_dir=config['out_dir'],
+                            out_dir=out_dir,
                             device=device,
                             presence_absence=config['presence_absence'],
                             lambda_bce=config['lambda_presence_absence']
@@ -243,7 +244,7 @@ def run_experiment_cv(config, log_func, base_fn, device) -> Tuple[
                                                  batch_size=config['batch_size'],
                                                  patience=config.get('early_stopping_patience', 50),
                                                  min_delta=config.get('early_stopping_min_delta', 0.0001))
-            _plot_cv_loss(train_losses, val_losses, fold, config['out_dir'])
+            plot_cv_loss(train_losses, val_losses, fold, out_dir)
 
         df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
                                                                                                  criterion)

@@ -28,7 +28,7 @@ def parse_covariates(sa_file, cov_used) -> tuple[np.ndarray, np.ndarray]:
         raise ValueError("Covariates to use must be specified.")
 
     # Read sample annotation file
-    sample_anno = _read_annotation_file(sa_file)
+    sample_anno = read_annotation_file(sa_file)
     logger.info(f'Finished reading sample annotation with shape: {sample_anno.shape}')
     
     # Process covariates
@@ -44,7 +44,7 @@ def parse_covariates(sa_file, cov_used) -> tuple[np.ndarray, np.ndarray]:
     return covariates, centered_covariates
 
 
-def _read_annotation_file(sa_file):
+def read_annotation_file(sa_file):
     """Read sample annotation file based on file extension."""
     file_extension = Path(sa_file).suffix
     if file_extension == '.csv':

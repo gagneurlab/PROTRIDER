@@ -1,11 +1,14 @@
 # path to output directory to store result files
 out_dir: output
 
+# csv input file containing intensities. Columns are samples and rows are proteins.
+input_intensities: sample_data/protrider_sample_dataset.tsv
+
 # column name in the input file indicating the column name containing the protein names/IDs
 index_col: "protein_ID"
 
 # csv file containing sample annotations
-# sample_annotation: sample_annotation.csv
+# sample_annotation: sample_data/sample_annotations.tsv
 
 ## Preprocessing params
 # maximum percentage of missing values per protein
@@ -17,10 +20,9 @@ log_func_name: "log"
 # names of columns in the sample annotation file to be passed as covariates to the autoencoder.
 # leaving this empty results in no covariates passed to the model
 cov_used:
-#- "gender"
-#- "PROTEOMICS_BATCH"
-#- "BATCH_RUN"
-#- "INSTRUMENT"
+# - SEX
+# - AGE
+# - "BATCH_RUN"
 
 # seed parameter for reproducibility
 seed: 42

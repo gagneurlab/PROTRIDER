@@ -5,15 +5,17 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
+from pathlib import Path
+from .datasets import covariates
 
 
-__all__ = ["_plot_pvals", "_plot_encoding_dim", "_plot_aberrant_per_sample", "_plot_aberrant_per_sample",
-           "_plot_training_loss", "_plot_cv_loss", "_plot_expected_vs_observed"]
+__all__ = ["plot_pvals", "plot_encoding_dim", "plot_aberrant_per_sample", "plot_aberrant_per_sample",
+           "plot_training_loss", "plot_cv_loss", "plot_expected_vs_observed", "plot_correlation_heatmap"]
 
 logger = logging.getLogger(__name__)
 
 
-def _plot_pvals(output_dir, distribution, plot_title="", fontsize=10):
+def plot_pvals(output_dir, distribution, plot_title="", fontsize=10):
     os.makedirs(f"{output_dir}/plots/", exist_ok=True)
   
     dt_pvals = pd.read_csv(os.path.join(output_dir, "pvals_one_sided.csv"))
@@ -67,7 +69,7 @@ def _plot_pvals(output_dir, distribution, plot_title="", fontsize=10):
     g_qq.save(f"{output_dir}/plots/qqplots.png", width=4, height=4, dpi=300)
 
 
-def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None, fontsize=10):
+def plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None, fontsize=10):
     os.makedirs(f"{output_dir}/plots/", exist_ok=True)
  
     if find_q_method != "gs":
@@ -97,8 +99,8 @@ def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None, fon
     # Add OHT line/label if present
     if oht_q is not None:
         p_out += (
-            pn.geom_vline(aes(xintercept=oht_q, color="'OHT'"), show_legend=True) +
-            pn.geom_text(aes(x=oht_q - 0.5, y=0.0, label=str(oht_q)),
+            pn.geom_vline(pn.aes(xintercept=oht_q, color="'OHT'"), show_legend=True) +
+            pn.geom_text(pn.aes(x=oht_q - 0.5, y=0.0, label=str(oht_q)),
                       data=pd.DataFrame({"x": [oht_q], "y": [0.0]})) +
             pn.scale_color_manual(values={"Grid search": "red", "OHT": "lightblue"})
         )
@@ -111,7 +113,7 @@ def _plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None, fon
                width=6, height=4, units='in', dpi=300)
 
 
-def _plot_aberrant_per_sample(output_dir, plot_title="", fontsize=10):
+def plot_aberrant_per_sample(output_dir, plot_title="", fontsize=10):
     os.makedirs(f"{output_dir}/plots/", exist_ok=True)
 
     res = pd.read_csv(f"{output_dir}/protrider_summary.csv")
@@ -158,21 +160,82 @@ def _plot_aberrant_per_sample(output_dir, plot_title="", fontsize=10):
                width=6, height=4, units='in', dpi=300)
 
 
-def _plot_training_loss(output_dir, plot_title="", fontsize=10):
+def plot_training_loss(output_dir, plot_title="", fontsize=10):
     os.makedirs(f"{output_dir}/plots/", exist_ok=True)
     loss_histoty = pd.read_csv(f"{output_dir}/train_losses.csv")
     p_out = (
         pn.ggplot(loss_histoty, pn.aes(x="epoch", y="train_loss")) +
         pn.geom_line(color="blue") +
         pn.labs(x="Epoch", y="Loss", title=plot_title) +
-        pn.theme_bw(base_size=fontsize)
+        pn.theme_bw(base_size=fontsize) +
+        pn.scale_y_log10()
     )
 
     p_out.save(f"{output_dir}/plots/training_loss.png",
                width=6, height=4, units='in', dpi=300)
 
 
-def _plot_cv_loss(train_losses, val_losses, fold, out_dir):
+def plot_correlation_heatmap(output_dir, sample_annotation_path: str, plot_title="", covariate_name=None):
+    """
+    Create a correlation heatmap plot for protein data colored by covariate values.
+    
+    Args:
+        
+    """
+    output_dir = Path(output_dir)
+    zscore_data = pd.read_csv(output_dir / 'zscores.csv').set_index('proteinID')
+
+    row_colors = None
+    if sample_annotation_path is not None:
+        sample_annotation = covariates.read_annotation_file(sample_annotation_path)
+        # Get covariate values for coloring
+        if covariate_name is not None:
+            if covariate_name not in sample_annotation.columns:
+                raise ValueError(f"Covariate '{covariate_name}' not found in sample annotation.")
+            covariate_values = sample_annotation[covariate_name]
+            
+            # Create a lookup table for coloring rows
+            # Use a larger color palette to support more unique covariate values
+            unique_vals = covariate_values.unique()
+            if len(unique_vals) > 20:
+                logger.warning(f"Covariate '{covariate_name}' has more than 20 unique values. Skipping color annotation.")
+            else:
+                palette = sns.color_palette("tab20", len(unique_vals))
+                lut = dict(zip(unique_vals, palette))
+                row_colors = [lut[label] for label in covariate_values]
+        
+    # Calculate correlation matrix
+    corr_matrix = zscore_data.corr()
+    
+    # Create clustermap
+    clustermap = sns.clustermap(
+        corr_matrix,
+        cmap='mako',
+        row_colors=None if not row_colors else row_colors,
+    )
+    
+    # Add legend for row colors if they exist
+    if row_colors is not None and covariate_name is not None:
+        # Create legend patches
+        from matplotlib.patches import Patch
+        legend_elements = [Patch(facecolor=color, label=str(val)) 
+                          for val, color in lut.items()]
+        clustermap.ax_col_dendrogram.legend(handles=legend_elements, 
+                                           title=covariate_name,
+                                           bbox_to_anchor=(1.15, 1), 
+                                           loc='upper left',
+                                           frameon=True)
+    
+    # Adjust layout
+    plt.setp(clustermap.ax_heatmap.get_xticklabels(), rotation=45, ha='right')
+    plt.setp(clustermap.ax_heatmap.get_yticklabels(), rotation=0)
+    plt.title(plot_title)
+    plt.savefig(output_dir / 'plots' / 'correlation_heatmap.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.info(f"Saved correlation heatmap to {output_dir / 'plots' / 'correlation_heatmap.png'}")
+
+
+def plot_cv_loss(train_losses, val_losses, fold, out_dir):
     # plot the loss history; stratified by fold
     plot_dir = Path(out_dir) / 'plots'
     plot_dir.mkdir(parents=True, exist_ok=True)
@@ -192,7 +255,7 @@ def _plot_cv_loss(train_losses, val_losses, fold, out_dir):
     logger.info(f"Saved loss history plot for fold {fold} to {out_p}")
 
 
-def _plot_expected_vs_observed(output_dir, protein_id, plot_title="", fontsize=10):
+def plot_expected_vs_observed(output_dir, protein_id, plot_title="", fontsize=10):
     os.makedirs(f"{output_dir}/plots/", exist_ok=True)
     data_in = pd.read_csv(f"{output_dir}/processed_input.csv")
     data_out = pd.read_csv(f"{output_dir}/output.csv")

@@ -9,76 +9,15 @@ import click
 from pandas import DataFrame
 import torch
 import logging
-import os
 
 from .utils import Result, ModelInfo, run_experiment, run_experiment_cv
-from .plots import _plot_pvals, _plot_encoding_dim, _plot_aberrant_per_sample, _plot_training_loss, _plot_expected_vs_observed
+from . import plots
 
 logger = logging.getLogger(__name__)
 
 
-# @click.group(context_settings=dict(help_option_names=["-h", "--help"]))
-@click.command()
-@click.option(
-    "--config",
-    default='../config.yaml',
-    help="Configuration file containing PROTRIDER custom options",
-    type=click.Path(exists=True, dir_okay=False),
-)
-@click.option(
-    '--run_pipeline',
-    is_flag=True,
-    help="Run PROTRIDER pipeline"
-)
-@click.option(
-    '--plot_heatmap',
-    is_flag=True,
-    help="Plot the correlation heatmaps"
-)
-@click.option(
-    '--plot_title',
-    type=str,
-    default="",
-    help="Title of the plots"
-)
-@click.option(
-    '--plot_pvals',
-    is_flag=True,
-    help="Plot the pvalue plots"
-)
-@click.option(
-    '--plot_encoding_dim',
-    is_flag=True,
-    help="Plot the endocing dimension search plot"
-)
-@click.option(
-    '--plot_aberrant_per_sample',
-    is_flag=True,
-    help="Plot nubmer of aberrant proteins per sample"
-)
-@click.option(
-    '--plot_training_loss',
-    is_flag=True,
-    help="Plot training loss history"
-)
-@click.option(
-    '--plot_expected_vs_observed',
-    is_flag=True,
-    help="Plot expected vs observed protein intensitiy for protein protein_id"
-)
-@click.option(
-    '--protein_id',
-    type=str,
-    help="Id of the protein to plot"
-)
-@click.option(
-    '--plot_all',
-    is_flag=True,
-    help="Plot training loss, nubmer of aberrant proteins per sample, pvalue plots and endocing dimension search"
-)
-def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_title: str = "", plot_pvals: bool = False, 
-         plot_encoding_dim: bool = False, plot_aberrant_per_sample: bool = False, plot_training_loss: bool = False, 
-         plot_expected_vs_observed: bool = False, protein_id: str = None, plot_all: bool = False) -> None:
+@click.group()
+def cli() -> None:
     """# PROTRIDER
 
     PROTRIDER is a package for calling protein outliers on mass spectrometry data
@@ -88,68 +27,196 @@ def main(config, run_pipeline: bool = False, plot_heatmap: bool = False, plot_ti
     - Official code repository: https://github.com/gagneurlab/PROTRIDER
 
     """
-    print(plot_title)
+    pass
 
-    return run(config, input_intensities, sample_annotation, out_dir)
-
-
-def run(config, input_intensities: str, sample_annotation: str = None, out_dir: str = None, skip_summary=False):
-    ## Load config with params
-    config = yaml.load(open(config), Loader=yaml.FullLoader) 
-    if run_pipeline is True:
-        logger.info('Runing PROTRIDER pipeline')
-        return run(config)
-    elif plot_heatmap is True:
-        # TODO add plot_heatmap
-        logger.info("plotting correlation_heatmaps is not implemented yet.")
+@cli.group(chain=True)
+@click.option(
+    "--config",
+    help="Configuration file containing PROTRIDER custom options",
+    type=click.Path(exists=True, dir_okay=False),
+)
+@click.option(
+    '--plot_title',
+    type=str,
+    default="",
+    help="Title of the plots"
+)
+@click.pass_context
+def plot(ctx, config: str, plot_title: str = ""):
+    """
+    Plot the results of a PROTRIDER run.
+    """
+    if config is None:
+        click.echo('No config file provided. Exiting.')
         return
-    elif plot_pvals is True:
-        logger.info("plotting pvalue plots")
-        _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
-    elif plot_encoding_dim is True:
-         logger.info("plotting encoding dimension search plot")
-         _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
-    elif plot_aberrant_per_sample is True:
-        logger.info("plotting number of aberrant proteins per sample")
-        _plot_aberrant_per_sample(config["out_dir"], plot_title)
-    elif plot_training_loss is True:
-        logger.info("plotting training loss")
-        _plot_training_loss(config["out_dir"], plot_title)
-    elif plot_expected_vs_observed is True:
-        if protein_id is None:
-            raise ValueError("protein_id is required for plot_expected_vs_observed function.")
-        logger.info(f"plotting expected vs observed protein intensitiy for protein {protein_id}")
-        _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
-    elif plot_all is True:
-        _plot_pvals(config["out_dir"], config['pval_dist'], plot_title)
-        _plot_aberrant_per_sample(config["out_dir"], plot_title)
-        _plot_encoding_dim(config["out_dir"], config['find_q_method'], plot_title)
-        _plot_training_loss(config["out_dir"], plot_title)
-        if protein_id is None:
-            raise ValueError("protein_id is required for plot_expected_vs_observed function.")
-        _plot_expected_vs_observed(config["out_dir"], protein_id, plot_title)
-
-
-def run(config):
+    
+    config = yaml.load(open(config), Loader=yaml.FullLoader) 
+    config = defaultdict(lambda: None, config)
     if config['verbose']:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
     else:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
 
+    out_dir = config['out_dir']
+    if Path(out_dir).is_dir() is False:
+        click.echo(f'Output directory {out_dir} does not exist. Exiting.')
+        return
+
+    ctx.obj = config
+    ctx.obj['plot_title'] = plot_title
+
+
+@plot.command('all')
+@click.pass_context
+def plot_all(ctx):
+    """
+    Plot all results for a PROTRIDER run.
+    """
+    if ctx.obj is None:
+        return
+    out_dir = ctx.obj['out_dir']
+    plot_title = ctx.obj['plot_title']
+    logger.info("plotting all plots")
+    plots.plot_pvals(out_dir, ctx.obj['pval_dist'], plot_title)
+    plots.plot_aberrant_per_sample(out_dir, plot_title)
+    plots.plot_encoding_dim(out_dir, ctx.obj['find_q_method'], plot_title)
+    plots.plot_training_loss(out_dir, plot_title)
+    plots.plot_correlation_heatmap(out_dir, ctx.obj['sample_annotation'], plot_title, None)
+
+@plot.command('pvals')
+@click.pass_context
+def plot_pvals(ctx):
+    """
+    Plot pvalue plots for a PROTRIDER run.
+    """
+    if ctx.obj is None:
+        return
+    out_dir = ctx.obj['out_dir']
+    plot_title = ctx.obj['plot_title']
+    logger.info("plotting pvalue plots")
+    plots.plot_pvals(out_dir, ctx.obj['pval_dist'], plot_title)
+
+@plot.command('aberrant_per_sample')
+@click.pass_context
+def plot_aberrant_per_sample(ctx):
+    """
+    Plot number of aberrant proteins per sample for a PROTRIDER run.
+    """
+    if ctx.obj is None:
+        return
+    out_dir = ctx.obj['out_dir']
+    plot_title = ctx.obj['plot_title']
+    logger.info("plotting number of aberrant proteins per sample")
+    plots.plot_aberrant_per_sample(out_dir, plot_title)
+
+@plot.command('encoding_dim')
+@click.pass_context
+def plot_encoding_dim(ctx):
+    """
+    Plot encoding dimension search plot for a PROTRIDER run.
+    """
+    if ctx.obj is None:
+        return
+    out_dir = ctx.obj['out_dir']
+    plot_title = ctx.obj['plot_title']
+    logger.info("plotting encoding dimension search plot")
+    plots.plot_encoding_dim(out_dir, ctx.obj['find_q_method'], plot_title)
+
+@plot.command('training_loss')
+@click.pass_context
+def plot_training_loss(ctx):
+    """
+    Plot training loss history for a PROTRIDER run.
+    """
+    if ctx.obj is None:
+        return
+    out_dir = ctx.obj['out_dir']
+    plot_title = ctx.obj['plot_title']
+    logger.info("plotting training loss")
+    plots.plot_training_loss(out_dir, plot_title)
+
+@plot.command('expected_vs_observed')
+@click.option(
+    '--protein_id',
+    type=str,
+    help="Id of the protein to plot"
+)
+@click.pass_context
+def plot_expected_vs_observed(ctx, protein_id: str):
+    """
+    Plot expected vs observed protein intensity for a PROTRIDER run.
+    """
+    if ctx.obj is None:
+        return
+    if protein_id is None:
+        click.echo('No protein_id provided for expected vs observed plot. Exiting.')
+        return
+    out_dir = ctx.obj['out_dir']
+    plot_title = ctx.obj['plot_title']
+    logger.info(f"plotting expected vs observed protein intensitiy for protein {protein_id}")
+    plots.plot_expected_vs_observed(out_dir, protein_id, plot_title)   
+
+@plot.command('correlation_heatmap')
+@click.option(
+    '--covariate',
+    type=str,
+    help="Name of the covariate to color the samples by"
+)
+@click.pass_context
+def plot_correlation_heatmap(ctx, covariate: str):
+    """
+    Plot correlation heatmap for a PROTRIDER run.
+    """
+    if ctx.obj is None:
+        return
+    out_dir = ctx.obj['out_dir']
+    plot_title = ctx.obj['plot_title']
+    logger.info("plotting correlation heatmap")
+    plots.plot_correlation_heatmap(out_dir, ctx.obj['sample_annotation'], plot_title, covariate_name=covariate)
+
+@cli.command()
+@click.option(
+    "--config",
+    help="Configuration file containing PROTRIDER custom options",
+    type=click.Path(exists=True, dir_okay=False),
+)
+@click.option(
+    "--skip_summary",
+    help="Do not save the summary file.",
+    is_flag=True,
+)
+def run(config: str, skip_summary: bool = False) -> DataFrame:
+    """Run the PROTRIDER pipeline.
+    """
+    if config is None:
+        click.echo('No config file provided. Exiting.')
+        return
+    
+    config = yaml.load(open(config), Loader=yaml.FullLoader) 
+    config = defaultdict(lambda: None, config)
+    if config['verbose']:
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
+    else:
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
+
+    input_intensities = config['input_intensities']
+    sample_annotation = config['sample_annotation']
+    out_dir = config['out_dir']
+
     logger.info('Starting protrider')
     logger.info("Config:\n%s", yaml.dump(config, default_flow_style=False))
 
-    config = defaultdict(lambda: None, config)
-
-    path = Path(config['out_dir'])
+    path = Path(out_dir)
     path.mkdir(parents=True, exist_ok=True)
 
     if config['log_func_name'] == "log2":
         log_func = np.log2
-        base_fn = lambda x: 2 ** x
+        def base_fn(x):
+            return 2 ** x
     elif config['log_func_name'] == "log10":
         log_func = np.log10
-        base_fn = lambda x: 10 ** x
+        def base_fn(x):
+            return 10 ** x
     elif config['log_func_name'] == 'log':
         log_func = np.log
         base_fn = np.exp
@@ -161,7 +228,7 @@ def run(config):
         else:
             raise ValueError(f"Log func {config['log_func_name']} not supported.")
 
-    if (config['find_q_method'] == 'OHT') and (len(config.get('cov_used', [])) > 0):
+    if (config['find_q_method'] == 'OHT') and config['cov_used']:
         logger.warning('OHT has not been evaluated with covariates yet')
 
     if (config['find_q_method'] == 'OHT') and config['presence_absence']:
@@ -178,26 +245,22 @@ def run(config):
         np.random.seed(config['seed'])
 
     if config.get('cross_val', False):
-        result, model_info, df_folds = run_experiment_cv(config, log_func, base_fn, device=device)
+        result, model_info, df_folds = run_experiment_cv(input_intensities, config, sample_annotation,
+                                                         log_func, base_fn, device=device, out_dir=out_dir)
     else:
-        result, model_info, = run_experiment(config, log_func, base_fn, device=device)
+        result, model_info, = run_experiment(input_intensities, config, sample_annotation, log_func, base_fn,
+                                             device=device, out_dir=out_dir)
         df_folds = None
 
-    if config['out_dir'] is not None:
-        _write_results(result=result, model_info=model_info, out_dir=config['out_dir'],
-                       df_folds=df_folds, config=config)
-
-    if skip_summary:
-        return None
-    
-    summary = _report_summary(result, config['pval_dist'], config['outlier_threshold'],
-                              config['report_all'])
-    summary_p = f"{config['out_dir']}/protrider_summary.csv"
-    summary.to_csv(summary_p, index=None)
-    logger.info(f'Saved output summary with shape {summary.shape} to <{summary_p}>---')
-
-    return summary
-
+    _write_results(result=result, model_info=model_info, out_dir=out_dir,
+                    df_folds=df_folds, config=config)
+        
+    if not skip_summary:
+        summary = _report_summary(result, config['pval_dist'], config['outlier_threshold'],
+                                config['report_all'])
+        summary_p = f"{out_dir}/protrider_summary.csv"
+        summary.to_csv(summary_p, index=None)
+        logger.info(f'Saved output summary with shape {summary.shape} to <{summary_p}>---')
 
 def _write_results(result: Result, model_info: ModelInfo, out_dir, config: dict, df_folds: DataFrame = None):
     logger.info('=== Saving output ===')
@@ -350,6 +413,5 @@ def _report_summary(result: Result, pval_dist='gaussian', outlier_thres=0.1, inc
 
     return df_res
 
-
 if __name__ == '__main__':
-    main()
+    cli(obj={})

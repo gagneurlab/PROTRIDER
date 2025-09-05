@@ -200,12 +200,13 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
                                               shuffle=True)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
+    train_losses = []
     for epoch in tqdm(range(n_epochs)):
         running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
                                                                           running_mse_loss, running_bce_loss))
-    return running_loss, running_mse_loss, running_bce_loss
+        train_losses.append(running_loss)
+    return running_loss, running_mse_loss, running_bce_loss, train_losses
 
 
 def _train_iteration(data_loader, model, criterion, optimizer):
