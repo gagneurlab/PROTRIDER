@@ -14,7 +14,7 @@ Using pip and conda environments
 We recommend installing and running PROTRIDER on a dedicated conda environment. To create and activate the conda environment run the following commands:
 
 ```
-conda create --name protrider_env python=3.8
+conda create --name protrider_env python=3.13
 conda activate protrider_env
 ```
 
@@ -47,6 +47,7 @@ An example dataset can be found in this repository under `sample_data/`.
 To run PROTRIDER, a configuration file needs to be provided. This can be adapted from the configuration file provided in this code repo (`config.yaml`). User options include
 
 - `out_dir`: Path to the directory to store output files.
+- `input_intensities`: Csv input file containing the protein intensities.
 - `cov_used`: List of column names contained in the sample annotation file to be included as known covariates.
 - `find_q_method`: Method to determine latent space dimension of autoencoder.
 - `pval_dist`: Distribution (Gaussian or Student's t-test) for P-value calculation.
@@ -56,5 +57,29 @@ To run PROTRIDER, a configuration file needs to be provided. This can be adapted
 Run PROTRIDER using the following command: 
 
 ```
-protrider --config <config_path> --input_intensities <intensities_path> --sample_annotation <sample_anno_path>
+protrider run --config <config_path> --input_intensities <intensities_path> --sample_annotation <sample_anno_path> --out_dir <out_dir>
+```
+To generate plots with PROTRIDER, use the following command (specify one or more plot types as needed):
+```
+protrider plot --plot_type <plot_types> --config <config_path> --out_dir <out_dir>
+```
+#### Plot options
+
+You can specify one or more plot types using the `--plot_type` option:
+
+- `training_loss`: Plot training loss history
+- `aberrant_per_sample`: Plot number of aberrant proteins per sample
+- `pvals`: Plot the p-value plots
+- `encoding_dim`: Plot the encoding dimension search plot
+- `expected_vs_observed`: Plot expected vs observed protein intensity for a specific protein (requires `--protein_id`)
+- `all`: Equivalent to specifying all of the above except `expected_vs_observed`.
+
+Example:
+```
+protrider plot --plot_type pvals --config <config_path>
+```
+
+To plot expected vs observed for a specific protein:
+```
+protrider plot --plot_type expected_vs_observed --protein_id <protein_id> --config <config_path>
 ```
