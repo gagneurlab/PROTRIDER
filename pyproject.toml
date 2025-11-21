@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "protrider"
-version='1.0'
+version='0.9'
 description = "PROTRIDER - Protein outlier detection method"
 authors = [
-    { name = "Ines Scheller"},
     { name = "Daniela Klaproth-Andrade", email = "daniela.andrade@tum.de"},
+    { name = "Ines Scheller"},
+    { name = "Ata Jadid Ahari"},
     { name = "George Tsitsiridis"},
 ]
 readme = "README.md"
