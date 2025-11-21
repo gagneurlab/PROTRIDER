@@ -5,9 +5,9 @@ from sklearn.metrics import precision_recall_curve, auc
 import torch
 import copy
 
-from .stats import get_pvals, fit_residuals
+from protrider.stats import get_pvals, fit_residuals
 from .model import ProtriderAutoencoder, train, MSEBCELoss  # masked
-from .datasets import ProtriderSubset, ProtriderDataset
+from protrider.datasets import ProtriderSubset, ProtriderDataset
 import logging
 
 __all__ = ['init_model', 'find_latent_dim']

@@ -45,4 +45,4 @@ dev = [
 ]
 
 [project.scripts]
-protrider = "protrider.main:cli"
+protrider = "protrider.cli:cli"

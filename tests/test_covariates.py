@@ -48,7 +48,7 @@ class TestParseCovariates:
         assert centered_covariates.shape[0] == 64
         
         # Should have: SEX (2 dummies) + BATCH_RUN (8 dummies) = 10 columns
-        expected_cols = 2 + 8  # SEX dummies + BATCH_RUN dummies
+        expected_cols = 1 + 7  # SEX dummies + BATCH_RUN dummies
         assert covariates.shape[1] == expected_cols
         assert centered_covariates.shape[1] == expected_cols
         
@@ -66,7 +66,7 @@ class TestParseCovariates:
         assert centered_covariates.shape[0] == 64
         
         # Should have: 1 numerical (AGE) + 2 categorical (SEX: 2 dummies) + (BATCH_RUN: 8 dummies) = 11 columns
-        expected_cols = 1 + 2 + 8  # AGE + SEX dummies + BATCH_RUN dummies
+        expected_cols = 1 + 1 + 7  # AGE + SEX dummies + BATCH_RUN dummies
         assert covariates.shape[1] == expected_cols
         assert centered_covariates.shape[1] == expected_cols
         
@@ -89,8 +89,8 @@ class TestParseCovariates:
             covariates, centered_covariates = parse_covariates(temp_file, ['AGE', 'SEX', 'BATCH'])
             
             # Should have: 1 numerical + 1 NA indicator + 2 categorical + 1 NA indicator + 2 categorical + 1 NA indicator
-            # AGE (1) + AGE_NA (1) + SEX dummies (2) + SEX_NA (1) + BATCH dummies (2) + BATCH_NA (1) = 8
-            expected_cols = 8
+            # AGE (1) + AGE_NA (1) + SEX dummies (1) + SEX_NA (1) + BATCH dummies (1) + BATCH_NA (1) = 6
+            expected_cols = 6
             assert covariates.shape[1] == expected_cols
             assert centered_covariates.shape[1] == expected_cols
             
@@ -114,9 +114,9 @@ class TestParseCovariates:
         try:
             covariates, centered_covariates = parse_covariates(temp_file, ['CONSTANT', 'VARIABLE'])
             
-            # Should only have VARIABLE covariate (2 dummies), CONSTANT should be skipped
-            assert covariates.shape[1] == 2  # Only VARIABLE dummies
-            assert centered_covariates.shape[1] == 2
+            # Should only have VARIABLE covariate (1 dummies), CONSTANT should be skipped
+            assert covariates.shape[1] == 1  # Only VARIABLE dummies
+            assert centered_covariates.shape[1] == 1
             
         finally:
             os.unlink(temp_file)
@@ -154,7 +154,7 @@ class TestParseCovariates:
             
             # Should work with CSV format
             assert covariates.shape[0] == 3
-            assert covariates.shape[1] == 3  # AGE (1) + SEX dummies (2)
+            assert covariates.shape[1] == 2  # AGE (1) + SEX dummies (1)
             assert not np.isnan(covariates).any()
             
         finally:
@@ -165,7 +165,7 @@ class TestCovariateProperties:
     """Test class for verifying properties of processed covariates."""
     
     def test_categorical_encoding_properties(self, categorical_covariates, covariates_path):
-        """Test properties of categorical encoding (one-hot)."""
+        """Test properties of categorical encoding (drop-first encoding)."""
         covariates, centered_covariates = parse_covariates(covariates_path, categorical_covariates)
         
         # For categorical variables, covariates and centered_covariates should be identical
@@ -176,10 +176,12 @@ class TestCovariateProperties:
         unique_values = np.unique(covariates)
         assert set(unique_values).issubset({0, 1})
         
-        # Each row should sum to number of categorical variables (one-hot property)
+        # With drop_first=True encoding, row sums vary from 0 to number of categorical variables
         # We have 2 categorical variables (SEX, BATCH_RUN)
+        # Each sample belongs to one category per variable, but first categories are dropped (represented as all zeros)
         row_sums = np.sum(covariates, axis=1)
-        assert np.all(row_sums == 2)  # Each sample should have exactly 2 categories selected
+        assert np.all(row_sums >= 0)  # Row sums should be non-negative
+        assert np.all(row_sums <= 2)  # Row sums should not exceed number of categorical variables
 
     def test_numerical_centering_properties(self, continuous_covariates, covariates_path):
         """Test properties of numerical covariate centering."""
@@ -208,13 +210,13 @@ class TestCovariateProperties:
         try:
             covariates, centered_covariates = parse_covariates(temp_file, ['AGE', 'SEX'])
             
-            # Expected structure: AGE(1) + SEX(2) + AGE_NA(1) + SEX_NA(1) = 5 columns
-            assert covariates.shape[1] == 5
+            # Expected structure: AGE(1) + SEX(1) + AGE_NA(1) + SEX_NA(1) = 4 columns
+            assert covariates.shape[1] == 4
             
             # Column structure: [AGE, SEX_F, SEX_M, AGE_NA, SEX_NA]
             # Order is: numerical, categorical, na_indicators
-            age_na_col = 3  # AGE_NA comes after categorical variables
-            sex_na_col = 4  # SEX_NA is last
+            age_na_col = 2  # AGE_NA comes after categorical variables
+            sex_na_col = 3  # SEX_NA is last
             
             # NA indicators should be binary (0 or 1)
             assert set(np.unique(covariates[:, age_na_col])).issubset({0, 1})

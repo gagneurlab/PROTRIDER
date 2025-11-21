@@ -1,16 +1,78 @@
 import copy
+from typing import Optional
 
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-import math
 import numpy as np
+import pandas as pd
+from dataclasses import dataclass
 import logging
 import torch.nn.functional as F
-from .datasets import ProtriderSubset
+from protrider.datasets import ProtriderSubset
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class ModelInfo:
+    """Stores model information."""
+    q: np.array
+    learning_rate: np.array
+    n_epochs: np.array
+    test_loss: np.array
+    train_losses: np.array
+    df0: np.array = None  # Degrees of freedom for the t-distribution, if applicable
+    df_folds: Optional[pd.DataFrame] = None  # DataFrame with fold assignments (for CV runs)
+    
+    def save(self, out_dir: str) -> None:
+        """
+        Save model information to CSV files.
+        
+        Args:
+            out_dir: Output directory path
+        """
+        import pandas as pd
+        import dataclasses
+        from pathlib import Path
+        
+        logger.info('=== Saving model info ===')
+        
+        out_dir = Path(out_dir)
+        model_info_dict = dataclasses.asdict(self)
+        
+        # Remove df_folds from model_info_dict to handle separately
+        df_folds = model_info_dict.pop("df_folds", None)
+        
+        if self.q.ndim == 0:
+            # make all variables of model_info arrays
+            model_info_dict = {k: np.array([v]) for k, v in model_info_dict.items()}
+
+        folds = np.arange(len(model_info_dict['q']))
+        
+        # Remove train_losses from dict (handled separately for non-CV runs)
+        train_losses = model_info_dict.pop("train_losses")
+        
+        # Save training losses separately if not doing CV
+        if df_folds is None and len(train_losses) > 0:
+            train_losses_df = pd.DataFrame({
+                'epoch': range(1, len(train_losses[0]) + 1),
+                'train_loss': train_losses[0],
+            })
+            out_p = out_dir / 'train_losses.csv'
+            train_losses_df.to_csv(out_p, header=True, index=False)
+            logger.info(f"Saved training losses to {out_p}")
+
+        # Save additional info
+        out_p = out_dir / 'additional_info.csv'
+        df_info = pd.DataFrame(model_info_dict, index=pd.Index(folds, name='fold'))
+        df_info.to_csv(out_p, header=True, index=True)
+        logger.info(f"Saved additional info to {out_p}")
+
+        # Save folds if provided
+        if df_folds is not None:
+            out_p = out_dir / 'folds.csv'
+            df_folds.to_csv(out_p, header=True, index=True)
+            logger.info(f"Saved folds to {out_p}")
 
 class ConditionalEnDecoder(nn.Module):
 

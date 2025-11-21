@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Union, Optional, Callable
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import Dataset, Subset
 import copy
@@ -34,9 +35,22 @@ class PCADataset(ABC):
 
 
 class ProtriderDataset(Dataset, PCADataset):
-    def __init__(self, input_intensities, index_col, sa_file=None,
-                 cov_used=None, log_func=np.log,
-                 maxNA_filter=0.3, device=torch.device('cpu')):
+    def __init__(self, input_intensities: Union[str, pd.DataFrame], index_col: str, 
+                 sa_file: Union[str, pd.DataFrame, None] = None,
+                 cov_used: Optional[list] = None, log_func: Callable = np.log,
+                 maxNA_filter: float = 0.3, device: torch.device = torch.device('cpu')):
+        """Initialize ProtriderDataset.
+        
+        Args:
+            input_intensities: Path to protein intensities file (str) or pandas DataFrame 
+                              with samples as rows and proteins as columns
+            index_col: Name of the index column (used only if input_intensities is a file path)
+            sa_file: Path to sample annotation file (str), pandas DataFrame, or None
+            cov_used: List of covariate column names to use, or None
+            log_func: Function to apply log transformation (default: np.log)
+            maxNA_filter: Maximum allowed proportion of NA values (default: 0.3)
+            device: PyTorch device (default: 'cpu')
+        """
         super().__init__()
         self.device = device
 
