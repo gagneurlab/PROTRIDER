@@ -215,14 +215,10 @@ def run(config_path: str):
         logging.basicConfig(
             level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', )
 
-    input_intensities = config.input_intensities
-    sample_annotation = config.sample_annotation
-    out_dir = config.out_dir
-
     logger.info('Starting protrider')
     logger.info("Config:\n%s", yaml.dump(config.__dict__, default_flow_style=False))
 
-    path = Path(out_dir)
+    path = Path(config.out_dir)
     path.mkdir(parents=True, exist_ok=True)
 
     # Log function and base function are now computed in config.__post_init__
@@ -242,18 +238,18 @@ def run(config_path: str):
         torch.manual_seed(config.seed)
         np.random.seed(config.seed)
 
-    # Run PROTRIDER
-    result, model_info = run_protrider(input_intensities, config, sample_annotation)
+    # Run PROTRIDER - all inputs are in config
+    result, model_info = run_protrider(config)
 
     # Save results
     # Save wide format (individual CSV files)
-    result.save(out_dir, format="wide")
+    result.save(config.out_dir, format="wide")
     # Save long format summary
-    result.save(out_dir, format="long", include_all=config.report_all)
+    result.save(config.out_dir, format="long", include_all=config.report_all)
     # Save model information
-    model_info.save(out_dir)
+    model_info.save(config.out_dir)
     # Save config
-    config.save(out_dir)
+    config.save(config.out_dir)
 
 
 if __name__ == '__main__':

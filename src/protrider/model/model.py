@@ -73,6 +73,34 @@ class ModelInfo:
             out_p = out_dir / 'folds.csv'
             df_folds.to_csv(out_p, header=True, index=True)
             logger.info(f"Saved folds to {out_p}")
+    
+    def plot_training_loss(self, out_dir: str = None, **kwargs):
+        """
+        Plot training loss history.
+        
+        Args:
+            out_dir: Optional output directory for saving plots. If None, plot is returned but not saved.
+            **kwargs: Additional arguments passed to the plotting function (plot_title, fontsize)
+            
+        Returns:
+            plotnine plot object
+            
+        Example:
+            >>> plot = model_info.plot_training_loss()  # Interactive use
+            >>> plot.draw()
+            >>> model_info.plot_training_loss(out_dir='output/')  # Save plot
+        """
+        from protrider import plots
+        # Build train_losses DataFrame
+        train_losses_df = pd.DataFrame({
+            'epoch': range(1, len(self.train_losses[0]) + 1),
+            'train_loss': self.train_losses[0],
+        })
+        return plots.plot_training_loss(
+            output_dir=out_dir,
+            train_losses=train_losses_df,
+            **kwargs
+        )
 
 class ConditionalEnDecoder(nn.Module):
 

@@ -1,6 +1,7 @@
 """Configuration loading utilities."""
 import yaml
 import torch
+import pandas as pd
 from pathlib import Path
 from typing import Union, Callable
 from dataclasses import dataclass, field
@@ -9,13 +10,17 @@ import numpy as np
 
 @dataclass
 class ProtriderConfig:
-    """Configuration for PROTRIDER pipeline."""
+    """Configuration for PROTRIDER pipeline.
+    
+    input_intensities can be a file path (str) or pandas DataFrame.
+    sample_annotation can be a file path (str), pandas DataFrame, or None.
+    """
     
     # I/O paths
     out_dir: str
-    input_intensities: str
+    input_intensities: Union[str, pd.DataFrame]  # Path or DataFrame
     index_col: str = "protein_ID"
-    sample_annotation: Optional[str] = None
+    sample_annotation: Optional[Union[str, pd.DataFrame]] = None  # Path, DataFrame, or None
     
     # Preprocessing params
     max_allowed_NAs_per_protein: float = 0.3

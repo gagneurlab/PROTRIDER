@@ -166,23 +166,197 @@ class Result:
             logger.info(f'Saved output summary with shape {df_res.shape} to {out_p}')
             
             return df_res
+    
+    def plot_pvals(self, out_dir: str = None, **kwargs):
+        """
+        Plot p-value distributions.
+        
+        Args:
+            out_dir: Optional output directory for saving plots. If None, plots are returned but not saved.
+            **kwargs: Additional arguments passed to the plotting function (plot_title, fontsize, distribution)
+            
+        Returns:
+            tuple: (histogram_plot, qq_plot) - plotnine plot objects
+            
+        Example:
+            >>> hist, qq = result.plot_pvals()  # Interactive use
+            >>> hist.draw()
+            >>> result.plot_pvals(out_dir='output/')  # Save plots
+        """
+        from . import plots
+        # Pass the one-sided p-values DataFrame
+        pvals_one_sided = self.df_pvals_one_sided if hasattr(self, 'df_pvals_one_sided') else None
+        return plots.plot_pvals(
+            output_dir=out_dir, 
+            pvals_one_sided=pvals_one_sided,
+            distribution=self.pval_dist,
+            **kwargs
+        )
+    
+    def plot_aberrant_per_sample(self, out_dir: str = None, **kwargs):
+        """
+        Plot number of aberrant proteins per sample.
+        
+        Args:
+            out_dir: Optional output directory for saving plots. If None, plot is returned but not saved.
+            **kwargs: Additional arguments passed to the plotting function (plot_title, fontsize)
+            
+        Returns:
+            plotnine plot object
+            
+        Example:
+            >>> plot = result.plot_aberrant_per_sample()  # Interactive use
+            >>> plot.draw()
+            >>> result.plot_aberrant_per_sample(out_dir='output/')  # Save plot
+        """
+        from . import plots
+        # Build protrider_summary DataFrame on the fly
+        ae_out = self.df_out
+        ae_in = self.dataset.data
+        raw_in = self.dataset.raw_data
+        zscores = self.df_Z
+        pvals = self.df_pvals
+        pvals_adj = self.df_pvals_adj
+        log2fc = self.log2fc
+        fc = self.fc
+        presence = self.df_presence
+
+        ae_out = (ae_out.reset_index().melt(id_vars='sampleID')
+                  .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_EXPECTED_LOG2INT'}))
+        ae_in = (ae_in.reset_index().melt(id_vars='sampleID')
+                 .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_LOG2INT'}))
+        raw_in = (raw_in.reset_index().melt(id_vars='sampleID')
+                  .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_INT'}))
+        zscores = (zscores.reset_index().melt(id_vars='sampleID')
+                   .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_ZSCORE'}))
+        pvals = (pvals.reset_index().melt(id_vars='sampleID')
+                 .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_PVALUE'}))
+        pvals_adj = (pvals_adj.reset_index().melt(id_vars='sampleID')
+                     .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_PADJ'}))
+        log2fc = (log2fc.reset_index().melt(id_vars='sampleID')
+                  .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_LOG2FC'}))
+        fc = (fc.reset_index().melt(id_vars='sampleID')
+              .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_FC'}))
+
+        merge_cols = ['sampleID', 'proteinID']
+        protrider_summary = (ae_in.merge(ae_out, on=merge_cols)
+                  .merge(raw_in, on=merge_cols)
+                  .merge(zscores, on=merge_cols)
+                  .merge(pvals, on=merge_cols)
+                  .merge(pvals_adj, on=merge_cols)
+                  .merge(log2fc, on=merge_cols)
+                  .merge(fc, on=merge_cols)
+                  ).reset_index(drop=True)
+
+        if presence is not None:
+            presence = (presence.reset_index().melt(id_vars='sampleID')
+                        .rename(columns={'variable': 'proteinID', 'value': 'pred_presence_probability'}))
+            protrider_summary = protrider_summary.merge(presence, on=merge_cols).reset_index(drop=True)
+
+        protrider_summary['PROTEIN_outlier'] = protrider_summary['PROTEIN_PADJ'].apply(
+            lambda x: x <= self.outlier_threshold)
+        protrider_summary['pvalDistribution'] = self.pval_dist
+        
+        return plots.plot_aberrant_per_sample(
+            output_dir=out_dir,
+            protrider_summary=protrider_summary,
+            **kwargs
+        )
+    
+    def plot_expected_vs_observed(self, protein_id: str, out_dir: str = None, **kwargs):
+        """
+        Plot expected vs observed intensities for a specific protein.
+        
+        Args:
+            protein_id: Protein identifier to plot
+            out_dir: Optional output directory for saving plots. If None, plot is returned but not saved.
+            **kwargs: Additional arguments passed to the plotting function (plot_title, fontsize)
+            
+        Returns:
+            plotnine plot object
+            
+        Example:
+            >>> plot = result.plot_expected_vs_observed('PROT123')  # Interactive use
+            >>> plot.draw()
+            >>> result.plot_expected_vs_observed('PROT123', out_dir='output/')  # Save plot
+        """
+        from . import plots
+        # Prepare data for plotting - transpose to match expected format
+        processed_input = self.dataset.data.T.reset_index()
+        processed_input.columns.name = None
+        processed_input = processed_input.rename(columns={'sampleID': 'proteinID'})
+        
+        output_data = self.df_out.T.reset_index()
+        output_data.columns.name = None
+        output_data = output_data.rename(columns={'sampleID': 'proteinID'})
+        
+        # Build protrider_summary on the fly (same as plot_aberrant_per_sample)
+        ae_out = self.df_out
+        ae_in = self.dataset.data
+        raw_in = self.dataset.raw_data
+        zscores = self.df_Z
+        pvals = self.df_pvals
+        pvals_adj = self.df_pvals_adj
+        log2fc = self.log2fc
+        fc = self.fc
+        presence = self.df_presence
+
+        ae_out = (ae_out.reset_index().melt(id_vars='sampleID')
+                  .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_EXPECTED_LOG2INT'}))
+        ae_in = (ae_in.reset_index().melt(id_vars='sampleID')
+                 .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_LOG2INT'}))
+        raw_in = (raw_in.reset_index().melt(id_vars='sampleID')
+                  .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_INT'}))
+        zscores = (zscores.reset_index().melt(id_vars='sampleID')
+                   .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_ZSCORE'}))
+        pvals = (pvals.reset_index().melt(id_vars='sampleID')
+                 .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_PVALUE'}))
+        pvals_adj = (pvals_adj.reset_index().melt(id_vars='sampleID')
+                     .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_PADJ'}))
+        log2fc = (log2fc.reset_index().melt(id_vars='sampleID')
+                  .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_LOG2FC'}))
+        fc = (fc.reset_index().melt(id_vars='sampleID')
+              .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_FC'}))
+
+        merge_cols = ['sampleID', 'proteinID']
+        protrider_summary = (ae_in.merge(ae_out, on=merge_cols)
+                  .merge(raw_in, on=merge_cols)
+                  .merge(zscores, on=merge_cols)
+                  .merge(pvals, on=merge_cols)
+                  .merge(pvals_adj, on=merge_cols)
+                  .merge(log2fc, on=merge_cols)
+                  .merge(fc, on=merge_cols)
+                  ).reset_index(drop=True)
+
+        if presence is not None:
+            presence = (presence.reset_index().melt(id_vars='sampleID')
+                        .rename(columns={'variable': 'proteinID', 'value': 'pred_presence_probability'}))
+            protrider_summary = protrider_summary.merge(presence, on=merge_cols).reset_index(drop=True)
+
+        protrider_summary['PROTEIN_outlier'] = protrider_summary['PROTEIN_PADJ'].apply(
+            lambda x: x <= self.outlier_threshold)
+        protrider_summary['pvalDistribution'] = self.pval_dist
+        
+        return plots.plot_expected_vs_observed(
+            protein_id=protein_id,
+            output_dir=out_dir,
+            processed_input=processed_input,
+            output_data=output_data,
+            protrider_summary=protrider_summary,
+            **kwargs
+        )
 
 
-def run_protrider(
-    input_intensities: Union[str, pd.DataFrame], 
-    config: ProtriderConfig, 
-    sample_annotation: Union[str, pd.DataFrame, None]
-) -> Tuple[Result, ModelInfo]:
+def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
     """
     Run PROTRIDER protein outlier detection.
     
     Automatically dispatches to cross-validation or standard mode based on config.cross_val.
+    All inputs including data (paths or DataFrames) are specified in the config.
     
     Args:
-        input_intensities: Path to protein intensities file or pandas DataFrame
-                          with samples as rows and proteins as columns
-        config: ProtriderConfig object with all configuration parameters
-        sample_annotation: Path to sample annotation file, pandas DataFrame, or None
+        config: ProtriderConfig object with all configuration parameters including
+                input_intensities (str or DataFrame) and sample_annotation (str, DataFrame, or None)
 
     Returns:
         Tuple of (Result, ModelInfo)
@@ -191,12 +365,22 @@ def run_protrider(
                     For CV runs, includes df_folds with fold assignments
     
     Examples:
+        >>> # Using file paths
         >>> config = ProtriderConfig(
         ...     out_dir='output',
         ...     input_intensities='data.csv',
+        ...     sample_annotation='annotations.csv',
         ...     cross_val=False
         ... )
-        >>> result, model_info = run_protrider('data.csv', config, 'annotations.csv')
+        >>> result, model_info = run_protrider(config)
+        
+        >>> # Passing DataFrames directly
+        >>> config = ProtriderConfig(
+        ...     out_dir='output',
+        ...     input_intensities=df,
+        ...     sample_annotation=sa_df
+        ... )
+        >>> result, model_info = run_protrider(config)
         
         >>> # With cross-validation
         >>> config_cv = ProtriderConfig(
@@ -205,28 +389,27 @@ def run_protrider(
         ...     cross_val=True,
         ...     n_folds=5
         ... )
-        >>> result, model_info = run_protrider('data.csv', config_cv, 'annotations.csv')
+        >>> result, model_info = run_protrider(config_cv)
     """
     if config.cross_val:
         logger.info('Running PROTRIDER with cross-validation')
-        return _run_protrider_cv(input_intensities, config, sample_annotation)
+        return _run_protrider_cv(config, config.input_intensities, config.sample_annotation)
     else:
         logger.info('Running PROTRIDER in standard mode')
-        return _run_protrider_standard(input_intensities, config, sample_annotation)
+        return _run_protrider_standard(config, config.input_intensities, config.sample_annotation)
 
 
 def _run_protrider_standard(
-    input_intensities: Union[str, pd.DataFrame], 
-    config: ProtriderConfig, 
+    config: ProtriderConfig,
+    input_intensities: Union[str, pd.DataFrame],
     sample_annotation: Union[str, pd.DataFrame, None]
 ) -> Tuple[Result, ModelInfo]:
     """
     Perform protein outlier detection in a single run (internal function).
     
     Args:
-        input_intensities: Path to protein intensities file or pandas DataFrame
-                          with samples as rows and proteins as columns
         config: ProtriderConfig object with all configuration parameters
+        input_intensities: Path to protein intensities file or pandas DataFrame
         sample_annotation: Path to sample annotation file, pandas DataFrame, or None
 
     Returns:
@@ -328,17 +511,16 @@ def _run_protrider_standard(
 
 
 def _run_protrider_cv(
-    input_intensities: Union[str, pd.DataFrame], 
-    config: ProtriderConfig, 
+    config: ProtriderConfig,
+    input_intensities: Union[str, pd.DataFrame],
     sample_annotation: Union[str, pd.DataFrame, None]
 ) -> Tuple[Result, ModelInfo]:
     """
     Perform protein outlier detection with cross-validation (internal function).
     
     Args:
-        input_intensities: Path to protein intensities file or pandas DataFrame
-                          with samples as rows and proteins as columns
         config: ProtriderConfig object with all configuration parameters
+        input_intensities: Path to protein intensities file or pandas DataFrame
         sample_annotation: Path to sample annotation file, pandas DataFrame, or None
 
     Returns:
