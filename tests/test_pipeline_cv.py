@@ -28,6 +28,7 @@ class TestPipelineCrossValidation:
                 n_folds=3,  # Small number for testing
                 n_epochs=2,
                 find_q_method='5',
+                seed=42,  # Set seed for reproducibility
                 verbose=False
             )
             
@@ -68,6 +69,7 @@ class TestPipelineCrossValidation:
                 n_folds=None,  # None triggers LOOCV
                 n_epochs=2,
                 find_q_method='3',
+                seed=42,  # Set seed for reproducibility
                 verbose=False
             )
             
@@ -94,6 +96,7 @@ class TestPipelineCrossValidation:
                 early_stopping_patience=5,
                 early_stopping_min_delta=0.001,
                 find_q_method='3',
+                seed=42,  # Set seed for reproducibility
                 verbose=False
             )
             
@@ -117,6 +120,7 @@ class TestPipelineCrossValidation:
                 n_epochs=2,
                 gs_epochs=2,
                 find_q_method='OHT',
+                seed=42,  # Set seed for reproducibility
                 verbose=False
             )
             
