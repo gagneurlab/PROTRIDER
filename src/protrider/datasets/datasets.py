@@ -42,10 +42,12 @@ class ProtriderDataset(Dataset, PCADataset):
         """Initialize ProtriderDataset.
         
         Args:
-            input_intensities: Path to protein intensities file (str) or pandas DataFrame 
-                              with samples as rows and proteins as columns
+            input_intensities: Protein intensities as file path (str) or pandas DataFrame
+                              - File format: columns = samples, rows = proteins
+                              - DataFrame format: rows = samples, columns = proteins
             index_col: Name of the index column (used only if input_intensities is a file path)
-            sa_file: Path to sample annotation file (str), pandas DataFrame, or None
+            sa_file: Sample annotations as file path (str), pandas DataFrame, or None
+                    - Format: rows = samples (for both file and DataFrame)
             cov_used: List of covariate column names to use, or None
             log_func: Function to apply log transformation (default: np.log)
             maxNA_filter: Maximum allowed proportion of NA values (default: 0.3)

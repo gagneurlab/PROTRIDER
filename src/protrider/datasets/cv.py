@@ -97,7 +97,8 @@ class ProtriderLOOCVGenerator(ProtriderCVGenerator):
         self.loo = LeaveOneOut()
 
     def _get_splits(self):
-        return self.loo.split(self.dataset)
+        # Pass the data array, not the dataset object, to generate correct indices
+        return self.loo.split(self.dataset.X)
 
     def __len__(self):
         """Return the number of folds"""
@@ -129,7 +130,8 @@ class ProtriderKfoldCVGenerator(ProtriderCVGenerator):
         self.kf = KFold(n_splits=num_folds, shuffle=True)
 
     def _get_splits(self):
-        return self.kf.split(self.dataset)
+        # Pass the data array, not the dataset object, to generate correct indices
+        return self.kf.split(self.dataset.X)
 
     def __len__(self):
         """Return the number of folds"""

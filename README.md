@@ -37,8 +37,13 @@ protrider --help
 
 ### Input files
 
-- Experimental protein intensities as csv or tab file, in which the columns represent samples and the rows represent proteins.
-- Optional: sample annotation file containing known covariates to be passed to the model.
+- **Protein intensities**: CSV or tab-separated file
+  - **File format**: Columns represent **samples**, rows represent **proteins** (wide format)
+  - **DataFrame format**: When passing a pandas DataFrame directly, samples should be **rows**, proteins should be **columns**
+  - Example: `sample_data/protrider_sample_dataset.tsv`
+- **Sample annotation** (optional): CSV or tab-separated file containing known covariates
+  - Format: Each row represents a sample
+  - Example: `sample_data/sample_annotations.tsv`
 
 An example dataset can be found in this repository under `sample_data/`. 
 
@@ -109,12 +114,28 @@ PROTRIDER can also be used directly as a Python package for more flexibility:
 
 ```python
 from protrider import ProtriderConfig, run_protrider
+import pandas as pd
 
-# Create configuration
+# Option 1: Using file paths
+# File format: columns = samples, rows = proteins
 config = ProtriderConfig(
     out_dir='output/',
-    input_intensities='data/protein_intensities.csv',
+    input_intensities='data/protein_intensities.csv',  # Columns = samples
     sample_annotation='data/sample_annotations.csv',
+    index_col='protein_ID',
+    cov_used=['AGE', 'SEX'],
+    n_epochs=100
+)
+
+# Option 2: Using DataFrames directly
+# DataFrame format: rows = samples, columns = proteins (transposed from file format!)
+protein_df = pd.read_csv('data/protein_intensities.csv', index_col='protein_ID').T
+annotation_df = pd.read_csv('data/sample_annotations.csv')
+
+config = ProtriderConfig(
+    out_dir='output/',
+    input_intensities=protein_df,        # DataFrame: rows = samples, columns = proteins
+    sample_annotation=annotation_df,     # DataFrame: rows = samples
     index_col='protein_ID',
     cov_used=['AGE', 'SEX'],
     n_epochs=100

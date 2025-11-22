@@ -355,8 +355,12 @@ def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
     All inputs including data (paths or DataFrames) are specified in the config.
     
     Args:
-        config: ProtriderConfig object with all configuration parameters including
-                input_intensities (str or DataFrame) and sample_annotation (str, DataFrame, or None)
+        config: ProtriderConfig object with all configuration parameters including:
+                - input_intensities: File path (str) or pandas DataFrame
+                  * File format: columns = samples, rows = proteins
+                  * DataFrame format: rows = samples, columns = proteins (transposed!)
+                - sample_annotation: File path (str), pandas DataFrame, or None
+                  * Format: rows = samples
 
     Returns:
         Tuple of (Result, ModelInfo)
@@ -365,20 +369,22 @@ def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
                     For CV runs, includes df_folds with fold assignments
     
     Examples:
-        >>> # Using file paths
+        >>> # Using file paths (file format: columns = samples, rows = proteins)
         >>> config = ProtriderConfig(
         ...     out_dir='output',
-        ...     input_intensities='data.csv',
+        ...     input_intensities='data.csv',  # Columns = samples
         ...     sample_annotation='annotations.csv',
         ...     cross_val=False
         ... )
         >>> result, model_info = run_protrider(config)
         
-        >>> # Passing DataFrames directly
+        >>> # Passing DataFrames directly (rows = samples, columns = proteins)
+        >>> protein_df = pd.read_csv('data.csv', index_col='protein_ID').T  # Transpose!
+        >>> sa_df = pd.read_csv('annotations.csv')
         >>> config = ProtriderConfig(
         ...     out_dir='output',
-        ...     input_intensities=df,
-        ...     sample_annotation=sa_df
+        ...     input_intensities=protein_df,  # rows = samples, columns = proteins
+        ...     sample_annotation=sa_df        # rows = samples
         ... )
         >>> result, model_info = run_protrider(config)
         
@@ -409,8 +415,11 @@ def _run_protrider_standard(
     
     Args:
         config: ProtriderConfig object with all configuration parameters
-        input_intensities: Path to protein intensities file or pandas DataFrame
-        sample_annotation: Path to sample annotation file, pandas DataFrame, or None
+        input_intensities: Protein intensities as file path or pandas DataFrame
+                          - File: columns = samples, rows = proteins
+                          - DataFrame: rows = samples, columns = proteins
+        sample_annotation: Sample annotations as file path, DataFrame, or None
+                          - Format: rows = samples
 
     Returns:
         Tuple of (Result, ModelInfo)
@@ -520,8 +529,11 @@ def _run_protrider_cv(
     
     Args:
         config: ProtriderConfig object with all configuration parameters
-        input_intensities: Path to protein intensities file or pandas DataFrame
-        sample_annotation: Path to sample annotation file, pandas DataFrame, or None
+        input_intensities: Protein intensities as file path or pandas DataFrame
+                          - File: columns = samples, rows = proteins
+                          - DataFrame: rows = samples, columns = proteins
+        sample_annotation: Sample annotations as file path, DataFrame, or None
+                          - Format: rows = samples
 
     Returns:
         Tuple of (Result, ModelInfo) - ModelInfo.df_folds contains fold assignments for CV
@@ -550,6 +562,7 @@ def _run_protrider_cv(
     df_res_list = []
     df_presence_list = []
     test_loss_list = []
+    train_losses_list = []
     q_list = []
     df0_list = []
     folds_list = []
@@ -611,6 +624,9 @@ def _run_protrider_cv(
                                                  patience=config.early_stopping_patience,
                                                  min_delta=config.early_stopping_min_delta)
             plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
+            train_losses_list.append(train_losses)
+        else:
+            train_losses_list.append([])
 
         df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
                                                                                                  criterion)
@@ -666,12 +682,22 @@ def _run_protrider_cv(
         # Repeat df0 for each sample in the output
         df0_list = [df0] * len(df_out)
 
+    # Compute one-sided p-values (used for some plots)
+    pvals_one_sided, _ = get_pvals(df_res.values,
+                                   mu=mu,
+                                   sigma=sigma,
+                                   df0=df0 if config.pval_dist == 't' else None,
+                                   how='left',
+                                   dis=config.pval_dist)
+
     pvals_adj = adjust_pvals(pvals, method=config.pval_adj)
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
-                             pvals=pvals, Z=Z, pvals_adj=pvals_adj, pseudocount=config.pseudocount,
+                             pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
+                             pseudocount=config.pseudocount,
                              outlier_threshold=config.outlier_threshold, base_fn=config.base_fn, pval_dist=config.pval_dist)
     model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(test_loss_list),
+                           train_losses=np.array(train_losses_list, dtype=object), 
                            df0=np.array(df0_list), df_folds=df_folds)
     return result, model_info
 
@@ -728,11 +754,9 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pval
     n_out_total = np.nansum(outs_per_sample)
     logger.info(
         f'Finished computing pvalues. No. outliers per sample in median: {n_out_median}')
-    logger.debug(f' {sorted(outs_per_sample)}')
 
     logger.info(
         f'Finished computing pvalues. No. outliers per sample in median: {np.nanmedian(outs_per_sample)}')
-    logger.debug(f' {sorted(outs_per_sample)}')
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence, df_pvals=df_pvals, df_Z=df_Z,
                   df_pvals_one_sided=df_pvals_one_sided, df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,

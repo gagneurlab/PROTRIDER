@@ -12,8 +12,14 @@ import numpy as np
 class ProtriderConfig:
     """Configuration for PROTRIDER pipeline.
     
-    input_intensities can be a file path (str) or pandas DataFrame.
-    sample_annotation can be a file path (str), pandas DataFrame, or None.
+    Matrix Format Requirements:
+    ---------------------------
+    input_intensities: File path (str) or pandas DataFrame
+        - File format: columns = samples, rows = proteins
+        - DataFrame format: rows = samples, columns = proteins (transposed from file!)
+    
+    sample_annotation: File path (str), pandas DataFrame, or None
+        - Format: rows = samples (for both file and DataFrame)
     """
     
     # I/O paths
