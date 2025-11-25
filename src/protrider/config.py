@@ -21,9 +21,9 @@ class ProtriderConfig:
     """
     
     # I/O paths
-    out_dir: str
     input_intensities: str  # File path only
     index_col: str = "protein_ID"
+    out_dir: Optional[str] = None  # File path or None
     sample_annotation: Optional[str] = None  # File path or None
     
     # Preprocessing params

@@ -7,7 +7,7 @@ import click
 import torch
 import logging
 
-from .pipeline import run
+from .pipeline import run as run_pipeline
 from .config import load_config
 from . import plots
 
@@ -207,6 +207,11 @@ def run(config_path: str):
 
     # Load and validate config using ProtriderConfig dataclass
     config = load_config(config_path)
+
+    out_dir = config.out_dir
+    if out_dir is None:
+        click.echo('Output directory has not been specified in the config. Exiting.')
+        return
     
     if config.verbose:
         logging.basicConfig(
@@ -239,7 +244,7 @@ def run(config_path: str):
         np.random.seed(config.seed)
 
     # Run PROTRIDER - all inputs are in config
-    result, model_info = run(config)
+    result, model_info = run_pipeline(config)
 
     # Save results
     # Save wide format (individual CSV files)
