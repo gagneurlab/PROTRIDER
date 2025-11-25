@@ -377,16 +377,6 @@ def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
         ... )
         >>> result, model_info = run_protrider(config)
         
-        >>> # Passing DataFrames directly (rows = samples, columns = proteins)
-        >>> protein_df = pd.read_csv('data.csv', index_col='protein_ID').T  # Transpose!
-        >>> sa_df = pd.read_csv('annotations.csv')
-        >>> config = ProtriderConfig(
-        ...     out_dir='output',
-        ...     input_intensities=protein_df,  # rows = samples, columns = proteins
-        ...     sample_annotation=sa_df        # rows = samples
-        ... )
-        >>> result, model_info = run_protrider(config)
-        
         >>> # With cross-validation
         >>> config_cv = ProtriderConfig(
         ...     out_dir='output',
