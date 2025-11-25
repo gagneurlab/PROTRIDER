@@ -9,7 +9,7 @@ import pandas as pd
 import tempfile
 from pathlib import Path
 
-from protrider import ProtriderConfig, run_protrider
+from protrider import ProtriderConfig, run
 from protrider.pipeline import Result
 from protrider.model import ModelInfo
 
@@ -32,7 +32,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             # Check result type
             assert isinstance(result, Result)
@@ -85,7 +85,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -105,7 +105,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -122,7 +122,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             # Save in wide format
             result.save(tmp_dir, format='wide')
@@ -148,7 +148,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             # Save in long format
             result.save(tmp_dir, format='long')

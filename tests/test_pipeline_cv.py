@@ -8,7 +8,7 @@ import pandas as pd
 import tempfile
 from pathlib import Path
 
-from protrider import ProtriderConfig, run_protrider
+from protrider import ProtriderConfig, run
 from protrider.pipeline import Result
 from protrider.model import ModelInfo
 
@@ -33,7 +33,7 @@ class TestPipelineCrossValidation:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -79,7 +79,7 @@ class TestPipelineCrossValidation:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -106,7 +106,7 @@ class TestPipelineCrossValidation:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -130,7 +130,7 @@ class TestPipelineCrossValidation:
                 verbose=False
             )
             
-            result, model_info = run_protrider(config)
+            result, model_info = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)

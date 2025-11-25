@@ -1,5 +1,5 @@
 from .config import ProtriderConfig, load_config
 from .model import ModelInfo
-from .pipeline import Result, run_protrider
+from .pipeline import Result, run
 
-__all__ = ["ProtriderConfig", "ModelInfo", "Result", "run_protrider", "load_config"]
+__all__ = ["ProtriderConfig", "ModelInfo", "Result", "run", "load_config"]

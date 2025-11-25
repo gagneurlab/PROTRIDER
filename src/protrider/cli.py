@@ -7,7 +7,7 @@ import click
 import torch
 import logging
 
-from .pipeline import run_protrider
+from .pipeline import run
 from .config import load_config
 from . import plots
 
@@ -239,7 +239,7 @@ def run(config_path: str):
         np.random.seed(config.seed)
 
     # Run PROTRIDER - all inputs are in config
-    result, model_info = run_protrider(config)
+    result, model_info = run(config)
 
     # Save results
     # Save wide format (individual CSV files)

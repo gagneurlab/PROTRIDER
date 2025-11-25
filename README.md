@@ -112,12 +112,11 @@ PROTRIDER generates several output files in the specified output directory:
 PROTRIDER can also be used directly as a Python package for more flexibility:
 
 ```python
-from protrider import ProtriderConfig, run_protrider
+import protrider
 import pandas as pd
 
-# Option 1: Using file paths
 # File format: columns = samples, rows = proteins
-config = ProtriderConfig(
+config = protrider.ProtriderConfig(
     out_dir='output/',
     input_intensities='data/protein_intensities.csv',  # Columns = samples
     sample_annotation='data/sample_annotations.csv',
@@ -126,22 +125,8 @@ config = ProtriderConfig(
     n_epochs=100
 )
 
-# Option 2: Using DataFrames directly
-# DataFrame format: rows = samples, columns = proteins (transposed from file format!)
-protein_df = pd.read_csv('data/protein_intensities.csv', index_col='protein_ID').T
-annotation_df = pd.read_csv('data/sample_annotations.csv')
-
-config = ProtriderConfig(
-    out_dir='output/',
-    input_intensities=protein_df,        # DataFrame: rows = samples, columns = proteins
-    sample_annotation=annotation_df,     # DataFrame: rows = samples
-    index_col='protein_ID',
-    cov_used=['AGE', 'SEX'],
-    n_epochs=100
-)
-
 # Run PROTRIDER
-result, model_info = run_protrider(config)
+result, model_info = protrider.run(config)
 
 # Save results in different formats
 result.save(config.out_dir, format='wide')  # Individual CSV files (pvals.csv, zscores.csv, etc.)

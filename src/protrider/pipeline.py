@@ -12,7 +12,7 @@ from .plots import plot_cv_loss
 from .config import ProtriderConfig
 
 
-__all__ = ["run_protrider"]
+__all__ = ["run"]
 
 logger = logging.getLogger(__name__)
 
@@ -347,7 +347,7 @@ class Result:
         )
 
 
-def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
+def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
     """
     Run PROTRIDER protein outlier detection.
     
@@ -375,7 +375,7 @@ def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
         ...     sample_annotation='annotations.csv',
         ...     cross_val=False
         ... )
-        >>> result, model_info = run_protrider(config)
+        >>> result, model_info = run(config)
         
         >>> # With cross-validation
         >>> config_cv = ProtriderConfig(
@@ -384,7 +384,7 @@ def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
         ...     cross_val=True,
         ...     n_folds=5
         ... )
-        >>> result, model_info = run_protrider(config_cv)
+        >>> result, model_info = run(config_cv)
     """
     if config.cross_val:
         logger.info('Running PROTRIDER with cross-validation')

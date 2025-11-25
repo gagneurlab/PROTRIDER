@@ -7,7 +7,7 @@ This module tests that invalid configurations are properly rejected.
 import pytest
 import tempfile
 
-from protrider import ProtriderConfig, run_protrider
+from protrider import ProtriderConfig, run
 
 
 class TestPipelineConfiguration:
@@ -24,7 +24,7 @@ class TestPipelineConfiguration:
             
             # Should fail when trying to run
             with pytest.raises((ValueError, TypeError, AttributeError)):
-                run_protrider(config)
+                run(config)
     
     def test_invalid_latent_dim_method(self, protein_intensities_path, protein_intensities_index_col):
         """Test that invalid find_q_method raises error during config validation."""
