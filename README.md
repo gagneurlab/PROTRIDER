@@ -37,9 +37,8 @@ protrider --help
 
 ### Input files
 
-- **Protein intensities**: CSV or tab-separated file
+- **Protein intensities**: CSV, TSV, or Parquet file
   - **File format**: Columns represent **samples**, rows represent **proteins** (wide format)
-  - **DataFrame format**: When passing a pandas DataFrame directly, samples should be **rows**, proteins should be **columns**
   - Example: `sample_data/protrider_sample_dataset.tsv`
 - **Sample annotation** (optional): CSV or tab-separated file containing known covariates
   - Format: Each row represents a sample

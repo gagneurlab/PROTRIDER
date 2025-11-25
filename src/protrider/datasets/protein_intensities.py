@@ -4,34 +4,21 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import copy
-from typing import Union
 from pydeseq2.preprocessing import deseq2_norm
 import logging
 
 logger = logging.getLogger(__name__)
 
-def read_protein_intensities(input_intensities: Union[str, pd.DataFrame], index_col: str) -> pd.DataFrame:
-    """Read protein intensities from a file or DataFrame.
+def read_protein_intensities(input_intensities: str, index_col: str) -> pd.DataFrame:
+    """Read protein intensities from a file.
     
     Args:
-        input_intensities: Path to file (str) or pandas DataFrame with proteins as columns
-        index_col: Name of the index column (used only if input is a file path)
+        input_intensities: Path to file (CSV, TSV, or Parquet)
+        index_col: Name of the index column containing protein IDs
     
     Returns:
         pd.DataFrame: Protein intensities with samples as rows and proteins as columns
     """
-    # If already a DataFrame, just validate and return
-    if isinstance(input_intensities, pd.DataFrame):
-        data = input_intensities.copy()
-        # Ensure proper structure
-        if data.index.name is None:
-            data.index.name = 'sampleID'
-        if data.columns.name is None:
-            data.columns.name = 'proteinID'
-        logger.info(f'Using provided DataFrame with shape: {data.shape}')
-        return data
-    
-    # Otherwise, read from file
     file_extension = Path(input_intensities).suffix
     if file_extension == '.csv':
         data = pd.read_csv(input_intensities).set_index(index_col)

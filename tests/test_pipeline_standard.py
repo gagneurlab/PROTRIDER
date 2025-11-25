@@ -60,22 +60,24 @@ class TestPipelineStandardMode:
             assert model_info.learning_rate > 0
             assert len(model_info.train_losses) > 0
     
-    def test_run_with_dataframes(self, protein_intensities_path, covariates_path, protein_intensities_index_col):
-        """Test running PROTRIDER with DataFrames instead of file paths."""
-        # Load data as DataFrames
+    def test_run_with_alternate_file_format(self, protein_intensities_path, covariates_path, protein_intensities_index_col):
+        """Test running PROTRIDER with CSV file format."""
+        # Read and save as CSV to test CSV reading
         protein_df = pd.read_csv(protein_intensities_path, sep='\t', index_col=protein_intensities_index_col)
-        # Transpose so samples are rows and proteins are columns (expected format for DataFrames)
-        protein_df = protein_df.T
-        protein_df.index.name = 'sampleID'
-        protein_df.columns.name = 'proteinID'
-        
         annotation_df = pd.read_csv(covariates_path, sep='\t')
         
         with tempfile.TemporaryDirectory() as tmp_dir:
+            # Save as CSV files
+            csv_protein_path = Path(tmp_dir) / 'proteins.csv'
+            csv_annotation_path = Path(tmp_dir) / 'annotations.csv'
+            
+            protein_df.to_csv(csv_protein_path)
+            annotation_df.to_csv(csv_annotation_path, index=False)
+            
             config = ProtriderConfig(
                 out_dir=tmp_dir,
-                input_intensities=protein_df,  # DataFrame with samples as rows
-                sample_annotation=annotation_df,  # DataFrame
+                input_intensities=str(csv_protein_path),
+                sample_annotation=str(csv_annotation_path),
                 index_col=protein_intensities_index_col,
                 cov_used=['AGE', 'SEX'],
                 n_epochs=2,

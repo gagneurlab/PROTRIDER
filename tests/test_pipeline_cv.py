@@ -6,6 +6,7 @@ This module tests k-fold and leave-one-out cross-validation modes.
 
 import pandas as pd
 import tempfile
+from pathlib import Path
 
 from protrider import ProtriderConfig, run_protrider
 from protrider.pipeline import Result
@@ -52,17 +53,22 @@ class TestPipelineCrossValidation:
         protein_df = pd.read_csv(protein_intensities_path, sep='\t', index_col=protein_intensities_index_col)
         annotation_df = pd.read_csv(covariates_path, sep='\t')
         
-        # Take first 10 samples (transpose to get samples as rows)
-        small_protein_df = protein_df.iloc[:, :10].T
-        small_protein_df.index.name = 'sampleID'
-        small_protein_df.columns.name = 'proteinID'
+        # Take first 10 samples and save as temporary files
+        small_protein_df = protein_df.iloc[:, :10]
         small_annotation_df = annotation_df.iloc[:10]
         
         with tempfile.TemporaryDirectory() as tmp_dir:
+            # Save subset to temporary files
+            small_protein_path = Path(tmp_dir) / 'small_proteins.tsv'
+            small_annotation_path = Path(tmp_dir) / 'small_annotations.tsv'
+            
+            small_protein_df.to_csv(small_protein_path, sep='\t')
+            small_annotation_df.to_csv(small_annotation_path, sep='\t', index=False)
+            
             config = ProtriderConfig(
                 out_dir=tmp_dir,
-                input_intensities=small_protein_df,
-                sample_annotation=small_annotation_df,
+                input_intensities=str(small_protein_path),
+                sample_annotation=str(small_annotation_path),
                 index_col=protein_intensities_index_col,
                 cov_used=['AGE'],
                 cross_val=True,

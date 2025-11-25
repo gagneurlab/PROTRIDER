@@ -352,14 +352,13 @@ def run_protrider(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
     Run PROTRIDER protein outlier detection.
     
     Automatically dispatches to cross-validation or standard mode based on config.cross_val.
-    All inputs including data (paths or DataFrames) are specified in the config.
+    All inputs including data files are specified in the config.
     
     Args:
         config: ProtriderConfig object with all configuration parameters including:
-                - input_intensities: File path (str) or pandas DataFrame
+                - input_intensities: File path (str)
                   * File format: columns = samples, rows = proteins
-                  * DataFrame format: rows = samples, columns = proteins (transposed!)
-                - sample_annotation: File path (str), pandas DataFrame, or None
+                - sample_annotation: File path (str) or None
                   * Format: rows = samples
 
     Returns:

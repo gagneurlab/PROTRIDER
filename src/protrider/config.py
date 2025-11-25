@@ -1,7 +1,6 @@
 """Configuration loading utilities."""
 import yaml
 import torch
-import pandas as pd
 from pathlib import Path
 from typing import Union, Callable
 from dataclasses import dataclass, field
@@ -14,19 +13,18 @@ class ProtriderConfig:
     
     Matrix Format Requirements:
     ---------------------------
-    input_intensities: File path (str) or pandas DataFrame
+    input_intensities: File path (str)
         - File format: columns = samples, rows = proteins
-        - DataFrame format: rows = samples, columns = proteins (transposed from file!)
     
-    sample_annotation: File path (str), pandas DataFrame, or None
-        - Format: rows = samples (for both file and DataFrame)
+    sample_annotation: File path (str) or None
+        - Format: rows = samples
     """
     
     # I/O paths
     out_dir: str
-    input_intensities: Union[str, pd.DataFrame]  # Path or DataFrame
+    input_intensities: str  # File path only
     index_col: str = "protein_ID"
-    sample_annotation: Optional[Union[str, pd.DataFrame]] = None  # Path, DataFrame, or None
+    sample_annotation: Optional[str] = None  # File path or None
     
     # Preprocessing params
     max_allowed_NAs_per_protein: float = 0.3

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Union, Optional
+from typing import Optional
 import logging
 
 
@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = ['parse_covariates']
 
-def parse_covariates(sa_file: Union[str, pd.DataFrame, None], cov_used: Optional[list]) -> tuple[np.ndarray, np.ndarray]:
-    """Parse covariates from sample annotation file or DataFrame.
+def parse_covariates(sa_file: Optional[str], cov_used: Optional[list]) -> tuple[np.ndarray, np.ndarray]:
+    """Parse covariates from sample annotation file.
     
     Args:
-        sa_file: Path to sample annotation file (CSV/TSV) or pandas DataFrame
+        sa_file: Path to sample annotation file (CSV/TSV)
         cov_used: List of covariate column names to use
         
     Returns:
@@ -28,13 +28,9 @@ def parse_covariates(sa_file: Union[str, pd.DataFrame, None], cov_used: Optional
     if cov_used is None:
         raise ValueError("Covariates to use must be specified.")
 
-    # Read sample annotation file or use DataFrame
-    if isinstance(sa_file, pd.DataFrame):
-        sample_anno = sa_file.copy()
-        logger.info(f'Using provided sample annotation DataFrame with shape: {sample_anno.shape}')
-    else:
-        sample_anno = read_annotation_file(sa_file)
-        logger.info(f'Finished reading sample annotation with shape: {sample_anno.shape}')
+    # Read sample annotation file
+    sample_anno = read_annotation_file(sa_file)
+    logger.info(f'Finished reading sample annotation with shape: {sample_anno.shape}')
     
     # Process covariates
     processed_covariates = _process_covariates(sample_anno[cov_used])
