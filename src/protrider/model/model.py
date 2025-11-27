@@ -93,8 +93,8 @@ class ModelInfo:
         from protrider import plots
         # Build train_losses DataFrame
         train_losses_df = pd.DataFrame({
-            'epoch': range(1, len(self.train_losses[0]) + 1),
-            'train_loss': self.train_losses[0],
+            'epoch': range(1, len(self.train_losses) + 1),
+            'train_loss': self.train_losses,
         })
         return plots.plot_training_loss(
             output_dir=out_dir,
