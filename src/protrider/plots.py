@@ -32,11 +32,11 @@ def plot_pvals(output_dir=None, distribution="t", plot_title="", fontsize=10, pv
     if pvals_one_sided is None:
         if output_dir is None:
             raise ValueError("Either output_dir or pvals_one_sided must be provided")
-        dt_pvals = pd.read_csv(os.path.join(output_dir, "pvals_one_sided.csv"))
+        dt_pvals = pd.read_csv(os.path.join(output_dir, "pvals_one_sided.csv")).set_index('proteinID')
     else:
         dt_pvals = pvals_one_sided.copy()
     
-    dt_pvals = dt_pvals.melt(id_vars='proteinID')
+    dt_pvals = dt_pvals.melt()
     dt_pvals = dt_pvals.dropna(subset=['value'])
     
     if distribution == "t":
