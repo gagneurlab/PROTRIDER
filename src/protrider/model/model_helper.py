@@ -21,7 +21,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     n_epochs=100, learning_rate=1e-6, batch_size=None,
                     pval_sided='two-sided', pval_dist='gaussian',
                     out_dir=None, device=torch.device('cpu'),
-                    presence_absence=False, lambda_bce=1.
+                    presence_absence=False, lambda_bce=1., n_jobs=-1
                     ):
     if method == "OHT" or method == "oht":
         logger.info('OHT method for finding latent dim')
@@ -63,11 +63,11 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                 X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
                 X_in[injected_dataset.mask] = np.nan
                 res = X_in - X_out
-                mu, sigma, df0 = fit_residuals(X_in - X_out, dis='gaussian')
+                mu, sigma, df0 = fit_residuals(X_in - X_out, dis='gaussian', n_jobs=n_jobs)
                 pvals, _ = get_pvals(res,
                                      mu=mu, sigma=sigma, df0=df0,
                                      how=pval_sided,
-                                     dis='gaussian',
+                                     dis='gaussian', n_jobs=n_jobs
                                      )
                 auprc = _get_prec_recall(pvals, outlier_mask)
                 logger.info(f"\t==> q = {latent_dim}: AUPRC = {auprc}")

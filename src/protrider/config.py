@@ -81,6 +81,7 @@ class ProtriderConfig:
     # Runtime params
     verbose: bool = False
     device: Literal["gpu", "cpu"] = "gpu"
+    n_jobs: int = -1  # Number of parallel jobs, -1 means using all processors
     
     def __post_init__(self):
         """Validate configuration after initialization and set computed fields."""

@@ -441,7 +441,8 @@ def _run_protrider_standard(
                         out_dir=config.out_dir,
                         device=config.device_torch,
                         presence_absence=config.presence_absence,
-                        lambda_bce=config.lambda_presence_absence
+                        lambda_bce=config.lambda_presence_absence,
+                        n_jobs=config.n_jobs
                         )
 
     logger.info(
@@ -483,19 +484,19 @@ def _run_protrider_standard(
     logger.info('Computing statistics')
     df_res = dataset.data - df_out  # log data - pred data
 
-    mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist)
+    mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs)
     pvals, Z = get_pvals(df_res.values,
                          mu=mu,
                          sigma=sigma,
                          df0=df0,
                          how=config.pval_sided,
-                         dis=config.pval_dist)
+                         dis=config.pval_dist, n_jobs=config.n_jobs)
     pvals_one_sided, _ = get_pvals(df_res.values,
                                    mu=mu,
                                    sigma=sigma,
                                    df0=df0,
                                    how='left',
-                                   dis=config.pval_dist)
+                                   dis=config.pval_dist, n_jobs=config.n_jobs)
 
     pvals_adj = adjust_pvals(pvals, method=config.pval_adj)
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
@@ -582,7 +583,8 @@ def _run_protrider_cv(
                             out_dir=config.out_dir,
                             device=config.device_torch,
                             presence_absence=config.presence_absence,
-                            lambda_bce=config.lambda_presence_absence
+                            lambda_bce=config.lambda_presence_absence,
+                            n_jobs=config.n_jobs
                             )
         logger.info(
             f'Latent dimension found with method {config.find_q_method}: {q}')
@@ -646,9 +648,9 @@ def _run_protrider_cv(
             df_res_val = val_subset.data - df_out_val  # log data - pred data
             df_res_train = train_subset.data - df_out_train  # log data - pred data
             mu, sigma, df0 = fit_residuals(
-                pd.concat([df_res_train, df_res_val]).values, dis=config.pval_dist)
+                pd.concat([df_res_train, df_res_val]).values, dis=config.pval_dist, n_jobs=config.n_jobs)
             pvals, Z = get_pvals(df_res_test.values, mu=mu,
-                                 sigma=sigma, df0=df0, how=config.pval_sided)
+                                 sigma=sigma, df0=df0, how=config.pval_sided, n_jobs=config.n_jobs)
             pvals_list.append(pvals)
             Z_list.append(Z)
             df0_list.append(df0)
@@ -665,9 +667,9 @@ def _run_protrider_cv(
         Z = np.concatenate(Z_list)
     else:
         logger.info('Estimating residual distribution parameters')
-        mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist)
+        mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs)
         pvals, Z = get_pvals(df_res.values, mu=mu, sigma=sigma, df0=df0,
-                             how=config.pval_sided)
+                             how=config.pval_sided, n_jobs=config.n_jobs)
         # Repeat df0 for each sample in the output
         df0_list = [df0] * len(df_out)
 
@@ -677,7 +679,8 @@ def _run_protrider_cv(
                                    sigma=sigma,
                                    df0=df0 if config.pval_dist == 't' else None,
                                    how='left',
-                                   dis=config.pval_dist)
+                                   dis=config.pval_dist,
+                                   n_jobs=config.n_jobs)
 
     pvals_adj = adjust_pvals(pvals, method=config.pval_adj)
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
