@@ -109,47 +109,30 @@ class Result:
         elif format == "long":
             logger.info('=== Saving results in long format ===')
             
-            ae_out = self.df_out
-            ae_in = self.dataset.data
-            raw_in = self.dataset.raw_data
-            zscores = self.df_Z
-            pvals = self.df_pvals
-            pvals_adj = self.df_pvals_adj
-            log2fc = self.log2fc
-            fc = self.fc
-            presence = self.df_presence
-
-            ae_out = (ae_out.reset_index().melt(id_vars='sampleID')
-                      .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_EXPECTED_LOG2INT'}))
-            ae_in = (ae_in.reset_index().melt(id_vars='sampleID')
-                     .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_LOG2INT'}))
-            raw_in = (raw_in.reset_index().melt(id_vars='sampleID')
-                      .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_INT'}))
-            zscores = (zscores.reset_index().melt(id_vars='sampleID')
-                       .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_ZSCORE'}))
-            pvals = (pvals.reset_index().melt(id_vars='sampleID')
-                     .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_PVALUE'}))
-            pvals_adj = (pvals_adj.reset_index().melt(id_vars='sampleID')
-                         .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_PADJ'}))
-            log2fc = (log2fc.reset_index().melt(id_vars='sampleID')
-                      .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_LOG2FC'}))
-            fc = (fc.reset_index().melt(id_vars='sampleID')
-                  .rename(columns={'variable': 'proteinID', 'value': 'PROTEIN_FC'}))
-
-            merge_cols = ['sampleID', 'proteinID']
-            df_res = (ae_in.merge(ae_out, on=merge_cols)
-                      .merge(raw_in, on=merge_cols)
-                      .merge(zscores, on=merge_cols)
-                      .merge(pvals, on=merge_cols)
-                      .merge(pvals_adj, on=merge_cols)
-                      .merge(log2fc, on=merge_cols)
-                      .merge(fc, on=merge_cols)
-                      ).reset_index(drop=True)
-
-            if presence is not None:
-                presence = (presence.reset_index().melt(id_vars='sampleID')
-                            .rename(columns={'variable': 'proteinID', 'value': 'pred_presence_probability'}))
-                df_res = df_res.merge(presence, on=merge_cols).reset_index(drop=True)
+            # Stack all dataframes at once for efficient melting
+            import pandas as pd
+            
+            # Create a multi-index dataframe with all values
+            dfs_to_melt = {
+                'PROTEIN_LOG2INT': self.dataset.data,
+                'PROTEIN_EXPECTED_LOG2INT': self.df_out,
+                'PROTEIN_INT': self.dataset.raw_data,
+                'PROTEIN_ZSCORE': self.df_Z,
+                'PROTEIN_PVALUE': self.df_pvals,
+                'PROTEIN_PADJ': self.df_pvals_adj,
+                'PROTEIN_LOG2FC': self.log2fc,
+                'PROTEIN_FC': self.fc,
+            }
+            
+            if self.df_presence is not None:
+                dfs_to_melt['pred_presence_probability'] = self.df_presence
+            
+            # Concatenate all dataframes along columns with a multi-index
+            combined = pd.concat(dfs_to_melt, axis=1)
+            
+            # Melt once instead of multiple times (use future_stack=True for pandas 2.1+)
+            df_res = combined.stack(future_stack=True).reset_index()
+            df_res.columns = ['sampleID', 'proteinID'] + list(dfs_to_melt.keys())
 
             df_res['PROTEIN_outlier'] = df_res['PROTEIN_PADJ'].apply(
                 lambda x: x <= self.outlier_threshold)
