@@ -164,3 +164,42 @@ class TestPipelineStandardMode:
                            'PROTEIN_ZSCORE', 'PROTEIN_LOG2FC', 'PROTEIN_outlier']
             for col in expected_cols:
                 assert col in output_df.columns, f"Column '{col}' not found in output"
+    
+    def test_input_format_proteins_as_columns(self, protein_intensities_path, covariates_path, protein_intensities_index_col):
+        """Test running PROTRIDER with transposed input (proteins as columns)."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Create transposed input file
+            df = pd.read_csv(protein_intensities_path, sep='\t')
+            df_transposed = df.T
+            df_transposed.columns = df_transposed.iloc[-1]  # Use last row (protein_ID) as column names
+            df_transposed = df_transposed[:-1]  # Remove the protein_ID row
+            df_transposed.index.name = 'sample_ID'
+            
+            # Save transposed file
+            transposed_path = Path(tmp_dir) / 'transposed_intensities.tsv'
+            df_transposed.to_csv(transposed_path, sep='\t')
+            
+            # Run with proteins_as_columns format
+            config = ProtriderConfig(
+                out_dir=tmp_dir,
+                input_intensities=str(transposed_path),
+                sample_annotation=str(covariates_path),
+                index_col='sample_ID',
+                input_format='proteins_as_columns',
+                cov_used=['AGE', 'SEX'],
+                n_epochs=2,
+                find_q_method='5',
+                verbose=False
+            )
+            
+            result, model_info = run(config)
+            
+            # Check basic outputs
+            assert isinstance(result, Result)
+            assert isinstance(model_info, ModelInfo)
+            assert result.df_pvals is not None
+            assert result.df_pvals_adj is not None
+            
+            # Verify expected shape: samples x proteins
+            assert result.df_pvals.shape[0] == 64  # 64 samples
+            assert result.df_pvals.shape[1] == 187  # 187 proteins (200 - 13 filtered)

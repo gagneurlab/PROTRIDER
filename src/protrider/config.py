@@ -22,6 +22,7 @@ class ProtriderConfig:
     
     # I/O paths
     input_intensities: str  # File path only
+    input_format: Literal["proteins_as_rows", "proteins_as_columns"] = "proteins_as_rows"
     index_col: str = "protein_ID"
     out_dir: Optional[str] = None  # File path or None
     sample_annotation: Optional[str] = None  # File path or None

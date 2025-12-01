@@ -404,7 +404,8 @@ def _run_protrider_standard(
                                cov_used=config.cov_used,
                                log_func=config.log_func,
                                maxNA_filter=config.max_allowed_NAs_per_protein,
-                               device=config.device_torch)
+                               device=config.device_torch,
+                               input_format=config.input_format)
 
     # 2. Find latent dim
     logger.info('Finding latent dimension')
@@ -521,10 +522,12 @@ def _run_protrider_cv(
     if config.n_folds is not None:
         cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config.index_col,
                                            config.cov_used, config.max_allowed_NAs_per_protein, config.log_func,
-                                           num_folds=config.n_folds, device=config.device_torch)
+                                           num_folds=config.n_folds, device=config.device_torch,
+                                           input_format=config.input_format)
     else:
         cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config.index_col, config.cov_used,
-                                         config.max_allowed_NAs_per_protein, config.log_func, device=config.device_torch)
+                                         config.max_allowed_NAs_per_protein, config.log_func, device=config.device_torch,
+                                         input_format=config.input_format)
     dataset = cv_gen.dataset
     criterion = MSEBCELoss(
         presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
