@@ -38,13 +38,13 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/gagneurlab/PROTRIDER"
 
-[project.optional-dependencies]
+[project.scripts]
+protrider = "protrider.cli:cli"
+
+[dependency-groups]
 dev = [
     "pytest",
     "pytest-cov",
     "pytest-xdist",
     "cython"
 ]
-
-[project.scripts]
-protrider = "protrider.cli:cli"
