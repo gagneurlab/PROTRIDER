@@ -2,7 +2,7 @@
 
 PROTRIDER is an autoencoder-based method to call protein outliers from mass spectrometry-based proteomics datasets.
 
-For more information see:
+Have a look at our [paper](https://doi.org/10.1093/bioinformatics/btaf628) for information about our work.
 
 ## Installation
 
@@ -150,3 +150,23 @@ residuals = result.df_res         # Residuals
 log2fc = result.log2fc            # Log2 fold changes
 fc = result.fc                    # Fold changes
 ```
+
+## Citation
+If you use this tool, please cite the original paper:
+```
+@article{10.1093/bioinformatics/btaf628,
+    author = {Klaproth-Andrade, Daniela and Scheller, Ines F and Tsitsiridis, Georgios and Loipfinger, Stefan and Mertes, Christian and Smirnov, Dmitrii and Prokisch, Holger and Yépez, Vicente A and Gagneur, Julien},
+    title = {PROTRIDER: Protein abundance outlier detection from mass spectrometry-based proteomics data with a conditional autoencoder},
+    journal = {Bioinformatics},
+    pages = {btaf628},
+    year = {2025},
+    month = {11},
+    abstract = {Detection of gene regulatory aberrations enhances our ability to interpret the impact of inherited and acquired genetic variation for rare disease diagnostics and tumor characterization. While numerous methods for calling RNA expression outliers from RNA-sequencing data have been proposed, the establishment of protein expression outliers from mass spectrometry data is lacking.Here, we propose and assess various modeling approaches to call protein expression outliers across three datasets from rare disease diagnostics and oncology. We use as independent evidence the enrichment for outlier calls in matched RNA-seq samples and the enrichment for rare variants likely disrupting protein expression. We show that controlling for hidden confounders and technical covariates, while simultaneously modeling the occurrence of missing values, is largely beneficial and can be achieved using conditional autoencoders. Moreover, we find that the differences between experimental and fitted log-transformed intensities by such models exhibit heavy tails that are poorly captured with the Gaussian distribution and report stronger statistical calibration when instead using the Student’s t-distribution. Our resulting method, PROTRIDER, outperformed baseline approaches based on raw log-intensities Z-scores, PCA, and isolation-based anomaly detection with Isolation forests. The application of PROTRIDER reveals significant enrichments of AlphaMissense pathogenic variants in protein expression outliers. Overall, PROTRIDER provides a method to confidently identify aberrantly expressed proteins applicable to rare disease diagnostics and cancer proteomics.PROTRIDER is freely available at github.com/gagneurlab/PROTRIDER and also available on Zenodo under the DOI zenodo.15569781.Supplementary data are available at Bioinformatics online.},
+    issn = {1367-4811},
+    doi = {10.1093/bioinformatics/btaf628},
+    url = {https://doi.org/10.1093/bioinformatics/btaf628},
+    eprint = {https://academic.oup.com/bioinformatics/advance-article-pdf/doi/10.1093/bioinformatics/btaf628/65416092/btaf628.pdf},
+}
+```
+
+
