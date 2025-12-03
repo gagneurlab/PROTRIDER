@@ -9,8 +9,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def read_protein_intensities(input_intensities, index_col):
-    # read csv
+def read_protein_intensities(input_intensities: str, index_col: str, input_format: str = "proteins_as_rows") -> pd.DataFrame:
+    """Read protein intensities from a file.
+    
+    Args:
+        input_intensities: Path to file (CSV, TSV, or Parquet)
+        index_col: Name of the index column containing protein IDs
+        input_format: Format of the input file:
+                     - "proteins_as_rows": proteins are rows, samples are columns (default)
+                     - "proteins_as_columns": samples are rows, proteins are columns
+    
+    Returns:
+        pd.DataFrame: Protein intensities with samples as rows and proteins as columns
+    """
     file_extension = Path(input_intensities).suffix
     if file_extension == '.csv':
         data = pd.read_csv(input_intensities).set_index(index_col)
@@ -21,12 +32,20 @@ def read_protein_intensities(input_intensities, index_col):
         data = pd.read_parquet(input_intensities).set_index(index_col)
     else:
         raise ValueError(f"Unsupported file type: {file_extension}")
-    data = data.T
-    data.index.names = ['sampleID']
-    data.columns.name = 'proteinID'
     
-
-    logger.info(f'Finished reading raw data with shape: {data.shape}')
+    # Transpose if needed to get samples as rows, proteins as columns
+    if input_format == "proteins_as_rows":
+        data = data.T
+        data.index.names = ['sampleID']
+        data.columns.name = 'proteinID'
+    elif input_format == "proteins_as_columns":
+        # Already in the correct format, just set names
+        data.index.name = 'sampleID'
+        data.columns.name = 'proteinID'
+    else:
+        raise ValueError(f"Invalid input_format: {input_format}. Must be 'proteins_as_rows' or 'proteins_as_columns'")
+    
+    logger.info(f'Finished reading raw data with shape: {data.shape} (samples x proteins)')
 
     return data
 

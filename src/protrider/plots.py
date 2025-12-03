@@ -15,11 +15,28 @@ __all__ = ["plot_pvals", "plot_encoding_dim", "plot_aberrant_per_sample", "plot_
 logger = logging.getLogger(__name__)
 
 
-def plot_pvals(output_dir, distribution, plot_title="", fontsize=10):
-    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
-  
-    dt_pvals = pd.read_csv(os.path.join(output_dir, "pvals_one_sided.csv"))
-    dt_pvals = dt_pvals.melt(id_vars='proteinID')
+def plot_pvals(output_dir=None, distribution="t", plot_title="", fontsize=10, pvals_one_sided=None):
+    """
+    Plot p-value distributions.
+    
+    Args:
+        output_dir: Optional directory to save plots. If None, plots are not saved.
+        distribution: Distribution type ("t" or "normal")
+        plot_title: Title for the plots
+        fontsize: Font size for plot text
+        pvals_one_sided: Optional DataFrame with p-values. If None, reads from output_dir/pvals_one_sided.csv
+        
+    Returns:
+        tuple: (histogram_plot, qq_plot) - plotnine plot objects
+    """
+    if pvals_one_sided is None:
+        if output_dir is None:
+            raise ValueError("Either output_dir or pvals_one_sided must be provided")
+        dt_pvals = pd.read_csv(os.path.join(output_dir, "pvals_one_sided.csv")).set_index('proteinID')
+    else:
+        dt_pvals = pvals_one_sided.copy()
+    
+    dt_pvals = dt_pvals.melt()
     dt_pvals = dt_pvals.dropna(subset=['value'])
     
     if distribution == "t":
@@ -43,7 +60,9 @@ def plot_pvals(output_dir, distribution, plot_title="", fontsize=10):
         ) 
     )
     
-    g_pvals.save(f"{output_dir}/plots/pvalues_dist.png", width=4, height=4, dpi=300)
+    if output_dir is not None:
+        os.makedirs(f"{output_dir}/plots/", exist_ok=True)
+        g_pvals.save(f"{output_dir}/plots/pvalues_dist.png", width=4, height=4, dpi=300)
 
     pv_t = dt_pvals['value'].dropna().values
     theoretical = -np.log10((np.arange(1, len(pv_t) + 1)) / (len(pv_t) + 1))
@@ -66,7 +85,10 @@ def plot_pvals(output_dir, distribution, plot_title="", fontsize=10):
         pn.theme_bw(base_size=fontsize)
     )
 
-    g_qq.save(f"{output_dir}/plots/qqplots.png", width=4, height=4, dpi=300)
+    if output_dir is not None:
+        g_qq.save(f"{output_dir}/plots/qqplots.png", width=4, height=4, dpi=300)
+    
+    return g_pvals, g_qq
 
 
 def plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None, fontsize=10):
@@ -113,12 +135,27 @@ def plot_encoding_dim(output_dir, find_q_method, plot_title="", oht_q=None, font
                width=6, height=4, units='in', dpi=300)
 
 
-def plot_aberrant_per_sample(output_dir, plot_title="", fontsize=10):
-    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
-
-    res = pd.read_csv(f"{output_dir}/protrider_summary.csv")
+def plot_aberrant_per_sample(output_dir=None, plot_title="", fontsize=10, protrider_summary=None):
+    """
+    Plot aberrant protein counts per sample.
     
-    aberrants = res[res["PROTEIN_outlier"] == True]
+    Args:
+        output_dir: Optional directory to save plot. If None, plot is not saved.
+        plot_title: Title for the plot
+        fontsize: Font size for plot text
+        protrider_summary: Optional DataFrame with summary. If None, reads from output_dir/protrider_summary.csv
+        
+    Returns:
+        plotnine plot object
+    """
+    if protrider_summary is None:
+        if output_dir is None:
+            raise ValueError("Either output_dir or protrider_summary must be provided")
+        res = pd.read_csv(f"{output_dir}/protrider_summary.csv")
+    else:
+        res = protrider_summary.copy()
+
+    aberrants = res[res["PROTEIN_outlier"]]
     non_aberrant_ids = set(res["sampleID"].unique()) - set(aberrants["sampleID"])
     non_aberrant = pd.DataFrame({"sampleID": list(non_aberrant_ids), "outlier_count": 0})
 
@@ -156,13 +193,34 @@ def plot_aberrant_per_sample(output_dir, plot_title="", fontsize=10):
         pn.theme_bw(base_size=fontsize)
     )
     
-    p_out.save(f"{output_dir}/plots/aberrant_per_sample.png",
-               width=6, height=4, units='in', dpi=300)
+    if output_dir is not None:
+        os.makedirs(f"{output_dir}/plots/", exist_ok=True)
+        p_out.save(f"{output_dir}/plots/aberrant_per_sample.png",
+                   width=6, height=4, units='in', dpi=300)
+    
+    return p_out
 
 
-def plot_training_loss(output_dir, plot_title="", fontsize=10):
-    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
-    loss_histoty = pd.read_csv(f"{output_dir}/train_losses.csv")
+def plot_training_loss(output_dir=None, plot_title="", fontsize=10, train_losses=None):
+    """
+    Plot training loss over epochs.
+    
+    Args:
+        output_dir: Optional directory to save plot. If None, plot is not saved.
+        plot_title: Title for the plot
+        fontsize: Font size for plot text
+        train_losses: Optional DataFrame with training losses. If None, reads from output_dir/train_losses.csv
+        
+    Returns:
+        plotnine plot object
+    """
+    if train_losses is None:
+        if output_dir is None:
+            raise ValueError("Either output_dir or train_losses must be provided")
+        loss_histoty = pd.read_csv(f"{output_dir}/train_losses.csv")
+    else:
+        loss_histoty = train_losses.copy()
+    
     p_out = (
         pn.ggplot(loss_histoty, pn.aes(x="epoch", y="train_loss")) +
         pn.geom_line(color="blue") +
@@ -171,8 +229,12 @@ def plot_training_loss(output_dir, plot_title="", fontsize=10):
         pn.scale_y_log10()
     )
 
-    p_out.save(f"{output_dir}/plots/training_loss.png",
-               width=6, height=4, units='in', dpi=300)
+    if output_dir is not None:
+        os.makedirs(f"{output_dir}/plots/", exist_ok=True)
+        p_out.save(f"{output_dir}/plots/training_loss.png",
+                   width=6, height=4, units='in', dpi=300)
+    
+    return p_out
 
 
 def plot_correlation_heatmap(output_dir, sample_annotation_path: str, plot_title="", covariate_name=None):
@@ -255,18 +317,40 @@ def plot_cv_loss(train_losses, val_losses, fold, out_dir):
     logger.info(f"Saved loss history plot for fold {fold} to {out_p}")
 
 
-def plot_expected_vs_observed(output_dir, protein_id, plot_title="", fontsize=10):
-    os.makedirs(f"{output_dir}/plots/", exist_ok=True)
-    data_in = pd.read_csv(f"{output_dir}/processed_input.csv")
-    data_out = pd.read_csv(f"{output_dir}/output.csv")
-    summary = pd.read_csv(f"{output_dir}/protrider_summary.csv")
+def plot_expected_vs_observed(protein_id, output_dir=None, plot_title="", fontsize=10, 
+                             processed_input=None, output_data=None, protrider_summary=None):
+    """
+    Plot expected vs observed intensities for a specific protein.
+    
+    Args:
+        protein_id: ID of the protein to plot
+        output_dir: Optional directory to save plot. If None, plot is not saved.
+        plot_title: Title for the plot
+        fontsize: Font size for plot text
+        processed_input: Optional DataFrame with processed input data. If None, reads from output_dir/processed_input.csv
+        output_data: Optional DataFrame with output data. If None, reads from output_dir/output.csv
+        protrider_summary: Optional DataFrame with summary. If None, reads from output_dir/protrider_summary.csv
+        
+    Returns:
+        plotnine plot object
+    """
+    if processed_input is None or output_data is None or protrider_summary is None:
+        if output_dir is None:
+            raise ValueError("Either output_dir or all data DataFrames must be provided")
+        data_in = pd.read_csv(f"{output_dir}/processed_input.csv")
+        data_out = pd.read_csv(f"{output_dir}/output.csv")
+        summary = pd.read_csv(f"{output_dir}/protrider_summary.csv")
+    else:
+        data_in = processed_input.copy()
+        data_out = output_data.copy()
+        summary = protrider_summary.copy()
 
     data_in_melted = data_in[data_in["proteinID"] == protein_id].melt(id_vars="proteinID", var_name="SAMPLE_ID", value_name="in_int")
     data_out_melted = data_out[data_out["proteinID"] == protein_id].melt(id_vars="proteinID", var_name="SAMPLE_ID", value_name="out_int")
 
     # Merge inputs and outputs
     df_plot = pd.merge(data_in_melted, data_out_melted, on="SAMPLE_ID")
-    summary_filtered = summary[(summary["proteinID"] == protein_id) & (summary["PROTEIN_outlier"] == True)]
+    summary_filtered = summary[(summary["proteinID"] == protein_id) & summary["PROTEIN_outlier"]]
     is_outlier = df_plot["SAMPLE_ID"].isin(summary_filtered["sampleID"])
     df_plot["outlier"] = is_outlier.replace({True: "Outlier", False: None})
     df_plot["label"] = df_plot["SAMPLE_ID"].where(is_outlier, None)
@@ -291,5 +375,9 @@ def plot_expected_vs_observed(output_dir, protein_id, plot_title="", fontsize=10
         pn.theme_bw(base_size=fontsize)
     )
 
-    p_out.save(f"{output_dir}/plots/expected_vs_observed.png",
-               width=4, height=4, units='in', dpi=300)
+    if output_dir is not None:
+        os.makedirs(f"{output_dir}/plots/", exist_ok=True)
+        p_out.save(f"{output_dir}/plots/expected_vs_observed.png",
+                   width=4, height=4, units='in', dpi=300)
+    
+    return p_out

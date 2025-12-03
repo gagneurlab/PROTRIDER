@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from typing import Optional
 import logging
 
 
@@ -10,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = ['parse_covariates']
 
-def parse_covariates(sa_file, cov_used) -> tuple[np.ndarray, np.ndarray]:
+def parse_covariates(sa_file: Optional[str], cov_used: Optional[list]) -> tuple[np.ndarray, np.ndarray]:
     """Parse covariates from sample annotation file.
     
     Args:
-        sa_file: Path to sample annotation file (CSV or TSV)
+        sa_file: Path to sample annotation file (CSV/TSV)
         cov_used: List of covariate column names to use
         
     Returns:

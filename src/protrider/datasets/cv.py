@@ -19,7 +19,8 @@ class ProtriderCVGenerator(ABC):
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float,
-                 log_func: Callable[[ArrayLike], ArrayLike], device=torch.device('cpu')):
+                 log_func: Callable[[ArrayLike], ArrayLike], device=torch.device('cpu'),
+                 input_format: str = "proteins_as_rows"):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -28,6 +29,7 @@ class ProtriderCVGenerator(ABC):
             cov_used: List of covariates to use
             maxNA_filter: Maximum proportion of NAs allowed per protein
             log_func: Log function to apply to the data
+            input_format: Format of input data ("proteins_as_rows" or "proteins_as_columns")
         """
         self.input_intensities = input_intensities
         self.sample_annotation = sample_annotation
@@ -35,6 +37,7 @@ class ProtriderCVGenerator(ABC):
         self.cov_used = cov_used
         self.maxNA_filter = maxNA_filter
         self.log_func = log_func
+        self.input_format = input_format
 
         # Initialize the dataset
         self.dataset = ProtriderDataset(input_intensities=input_intensities,
@@ -43,7 +46,8 @@ class ProtriderCVGenerator(ABC):
                                         cov_used=cov_used,
                                         log_func=log_func,
                                         maxNA_filter=maxNA_filter,
-                                        device=device)
+                                        device=device,
+                                        input_format=input_format)
 
     @abstractmethod
     def _get_splits(self):
@@ -80,7 +84,7 @@ class ProtriderLOOCVGenerator(ProtriderCVGenerator):
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float, log_func: Callable[[ArrayLike], ArrayLike],
-                 device=torch.device('cpu')):
+                 device=torch.device('cpu'), input_format: str = "proteins_as_rows"):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -89,15 +93,16 @@ class ProtriderLOOCVGenerator(ProtriderCVGenerator):
             cov_used: List of covariates to use
             maxNA_filter: Maximum proportion of NAs allowed per protein
             log_func: Log function to apply to the data
-            num_folds: Number of cross-validation folds
+            input_format: Format of input data ("proteins_as_rows" or "proteins_as_columns")
         """
-        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device)
+        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device, input_format)
 
         # Set up LOO
         self.loo = LeaveOneOut()
 
     def _get_splits(self):
-        return self.loo.split(self.dataset)
+        # Pass the data array, not the dataset object, to generate correct indices
+        return self.loo.split(self.dataset.X)
 
     def __len__(self):
         """Return the number of folds"""
@@ -112,7 +117,8 @@ class ProtriderKfoldCVGenerator(ProtriderCVGenerator):
 
     def __init__(self, input_intensities: str, sample_annotation: str, index_col: str,
                  cov_used: Iterable[str], maxNA_filter: float,
-                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, device=torch.device('cpu')):
+                 log_func: Callable[[ArrayLike], ArrayLike], num_folds: int = 5, device=torch.device('cpu'),
+                 input_format: str = "proteins_as_rows"):
         """
         Args:
             input_intensities: Path to CSV file with protein intensity data
@@ -122,14 +128,16 @@ class ProtriderKfoldCVGenerator(ProtriderCVGenerator):
             maxNA_filter: Maximum proportion of NAs allowed per protein
             log_func: Log function to apply to the data
             num_folds: Number of cross-validation folds
+            input_format: Format of input data ("proteins_as_rows" or "proteins_as_columns")
         """
-        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device)
+        super().__init__(input_intensities, sample_annotation, index_col, cov_used, maxNA_filter, log_func, device, input_format)
         self.num_folds = num_folds
         # Set up KFold
         self.kf = KFold(n_splits=num_folds, shuffle=True)
 
     def _get_splits(self):
-        return self.kf.split(self.dataset)
+        # Pass the data array, not the dataset object, to generate correct indices
+        return self.kf.split(self.dataset.X)
 
     def __len__(self):
         """Return the number of folds"""
