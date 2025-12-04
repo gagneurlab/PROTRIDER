@@ -8,10 +8,7 @@ Have a look at our [paper](https://doi.org/10.1093/bioinformatics/btaf628) for i
 
 ### Prerequisites
 
-PROTRIDER was trained and tested using Python 3.14 on a Linux system. The list of required packages for running PROTRIDER can be found in the file requirements.txt.
-
-Using pip and conda environments
-We recommend installing and running PROTRIDER on a dedicated conda environment. To create and activate the conda environment run the following commands:
+PROTRIDER was trained and tested using Python 3.14 on a Linux system. We recommend installing and running PROTRIDER on a dedicated conda environment. To create and activate the conda environment run the following commands:
 
 ```
 conda create --name protrider_env python=3.14
