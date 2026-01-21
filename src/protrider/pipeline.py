@@ -489,7 +489,7 @@ def _run_protrider_standard(
                              base_fn=config.base_fn, pval_dist=config.pval_dist)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
-                           train_losses=np.array(train_losses), df_folds=None)
+                           train_losses=np.array(train_losses), df_folds=None, df0=np.array(df0))
     return result, model_info
 
 
