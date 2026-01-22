@@ -238,7 +238,7 @@ class MSEBCELoss(nn.Module):
 
 
 def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
-              batch_size=None, patience=100, min_delta=0.001, wandb=None):
+              batch_size=None, patience=100, min_delta=0.001, wandb=None, wandb_prefix=''):
     # start data;pader
     if batch_size is None:
         batch_size = train_subset.X.shape[0]
@@ -256,9 +256,10 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
         train_loss, train_mse_loss, train_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
         if wandb is not None:
             wandb.log({
-                'train/loss': train_loss,
-                'train/mse_loss': train_mse_loss,
-                'train/bce_loss': train_bce_loss
+                f'{wandb_prefix}train_loss': train_loss,
+                f'{wandb_prefix}train_mse_loss': train_mse_loss,
+                f'{wandb_prefix}train_bce_loss': train_bce_loss,
+                f'{wandb_prefix}epoch': epoch
             })
         if epoch % val_every_nepochs == 0:
             train_losses.append(train_loss)
@@ -270,9 +271,9 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
             logger.debug('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
             if wandb is not None:
                 wandb.log({
-                    'val/loss': val_loss,
-                    'val/mse_loss': val_mse_loss,
-                    'val/bce_loss': val_bce_loss
+                    f'{wandb_prefix}val_loss': val_loss,
+                    f'{wandb_prefix}val_mse_loss': val_mse_loss,
+                    f'{wandb_prefix}val_bce_loss': val_bce_loss
                 })
             if min_val_loss - val_loss > min_delta:
                 min_val_loss = val_loss

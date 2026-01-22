@@ -667,6 +667,32 @@ def _run_protrider_cv(
     q_list = []
     df0_list = []
     folds_list = []
+    
+    # Initialize wandb for CV mode
+    wandb_module = None
+    if config.use_wandb:
+        try:
+            import wandb as wandb_module
+            wandb_module.init(project=config.wandb_project,
+                      name=config.wandb_name,
+                      config={
+                          'mode': 'cross_validation',
+                          'n_folds': config.n_folds if config.n_folds else 'LOOCV',
+                          'n_layers': config.n_layers,
+                          'h_dim': config.h_dim,
+                          'learning_rate': config.lr,
+                          'n_epochs': config.n_epochs,
+                          'batch_size': config.batch_size,
+                          'presence_absence': config.presence_absence,
+                          'lambda_bce': config.lambda_presence_absence,
+                          'early_stopping_patience': config.early_stopping_patience,
+                          'early_stopping_min_delta': config.early_stopping_min_delta,
+                          'fit_every_fold': config.fit_every_fold,
+                      })
+        except Exception as e:
+            logger.warning(f'Failed to initialize wandb: {e}')
+            wandb_module = None
+    
     # 2. Loop over folds
     for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
 
@@ -737,26 +763,6 @@ def _run_protrider_cv(
         model_was_loaded = (checkpoint_path and checkpoint_path.exists() and q is not None)
         should_train = config.autoencoder_training and not model_was_loaded
         if should_train:
-            wandb = None
-            if config.use_wandb:
-                import wandb as _wandb
-                wandb = _wandb
-                wandb.init(project=config.wandb_project,
-                           name=f"{config.wandb_name}_fold_{fold}",
-                           config={
-                               'latent_dim': q,
-                               'n_layers': config.n_layers,
-                               'h_dim': config.h_dim,
-                               'learning_rate': config.lr,
-                               'n_epochs': config.n_epochs,
-                               'batch_size': config.batch_size,
-                               'presence_absence': config.presence_absence,
-                               'lambda_bce': config.lambda_presence_absence,
-                               'n_folds': config.n_folds,
-                               'early_stopping_patience': config.early_stopping_patience,
-                               'early_stopping_min_delta': config.early_stopping_min_delta,
-                           })
-
             logger.info('Fitting model')
             # todo train validate (hyperparameter tuning)
             # todo pass validation set as well
@@ -766,7 +772,8 @@ def _run_protrider_cv(
                                                  batch_size=config.batch_size,
                                                  patience=config.early_stopping_patience,
                                                  min_delta=config.early_stopping_min_delta,
-                                                 wandb=wandb)
+                                                 wandb=wandb_module,
+                                                 wandb_prefix=f'fold_{fold}/')
             if config.out_dir:
                 plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
             train_losses_list.append(train_losses)
@@ -774,10 +781,14 @@ def _run_protrider_cv(
             # Save the trained model to checkpoint
             if checkpoint_path:
                 save_model(model, str(checkpoint_path), q)
-                if config.use_wandb:
-                    wandb.log_model(str(checkpoint_path), 'protrider_model')
-            if config.use_wandb:
-                wandb.finish()
+                if wandb_module is not None:
+                    try:
+                        # Log model as artifact
+                        model_artifact = wandb_module.Artifact(f'model_fold_{fold}', type='model')
+                        model_artifact.add_file(str(checkpoint_path))
+                        wandb_module.log_artifact(model_artifact)
+                    except Exception as e:
+                        logger.warning(f'Failed to log model artifact for fold {fold}: {e}')
         else:
             if model_was_loaded:
                 logger.info(f'Skipping training for fold {fold} - using loaded model from checkpoint')
@@ -796,6 +807,20 @@ def _run_protrider_cv(
                                                                                             criterion)
         logger.info(f'Fold {fold} test loss: {test_loss}')
         df_res_test = test_subset.data - df_out_test  # log data - pred data
+
+        # Log fold summary metrics to wandb
+        if wandb_module is not None:
+            try:
+                wandb_module.log({
+                    f'fold_{fold}/latent_dim': q,
+                    f'fold_{fold}/test_loss': test_loss,
+                    f'fold_{fold}/test_mse_loss': test_mse_loss,
+                    f'fold_{fold}/test_bce_loss': test_bce_loss,
+                    f'fold_{fold}/final_train_loss': train_loss,
+                    f'fold_{fold}/final_val_loss': val_loss,
+                })
+            except Exception as e:
+                logger.warning(f'Failed to log fold {fold} summary metrics: {e}')
 
         df_out_list.append(df_out_test)
         if df_presence_test is not None:
@@ -824,6 +849,16 @@ def _run_protrider_cv(
     df_presence = pd.concat(
         df_presence_list) if df_presence_list != [] else None
     df_folds = pd.DataFrame({'fold': folds_list, }, index=df_out.index)
+
+    # Log fold assignments to wandb
+    if wandb_module is not None:
+        try:
+            # Log fold assignments as table
+            df_folds_with_samples = df_folds.reset_index().rename(columns={'index': 'sample'})
+            fold_table = wandb_module.Table(dataframe=df_folds_with_samples)
+            wandb_module.log({"cv_fold_assignments": fold_table})
+        except Exception as e:
+            logger.warning(f'Failed to log fold assignments to wandb: {e}')
 
     # Compute p-values on test set
     if fit_every_fold:
@@ -855,6 +890,14 @@ def _run_protrider_cv(
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(test_loss_list),
                            train_losses=np.array(train_losses_list, dtype=object), 
                            df0=np.array(df0_list), df_folds=df_folds)
+    
+    # Finish wandb run for CV mode
+    if wandb_module is not None:
+        try:
+            wandb_module.finish()
+        except Exception as e:
+            logger.warning(f'Failed to finish wandb: {e}')
+    
     return result, model_info
 
 
