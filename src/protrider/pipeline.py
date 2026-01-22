@@ -487,9 +487,14 @@ def _run_protrider_standard(
     model = None
     q = None
     # Use custom checkpoint path if specified, otherwise default to out_dir/model.pt
-    checkpoint_path = Path(config.checkpoint_path) if config.checkpoint_path else Path(config.out_dir) / 'model.pt'
+    if config.checkpoint_path:
+        checkpoint_path = Path(config.checkpoint_path)
+    elif config.out_dir:
+        checkpoint_path = Path(config.out_dir) / 'model.pt'
+    else:
+        checkpoint_path = None  # No checkpoint path available
     
-    if checkpoint_path.exists():
+    if checkpoint_path and checkpoint_path.exists():
         logger.info(f'Attempting to load model from {checkpoint_path}')
         model, q = load_model(dataset, str(checkpoint_path), config)
     
@@ -544,7 +549,7 @@ def _run_protrider_standard(
     train_losses = []
     
     # 5. Train model if needed (skip if model was loaded from checkpoint)
-    model_was_loaded = (checkpoint_path.exists() and q is not None)
+    model_was_loaded = (checkpoint_path and checkpoint_path.exists() and q is not None)
     should_train = config.autoencoder_training and not model_was_loaded
     
     if should_train:
@@ -557,7 +562,8 @@ def _run_protrider_standard(
                     final_loss, final_mse_loss, final_bce_loss)
         
         # Save the trained model to checkpoint
-        save_model(model, str(checkpoint_path), q)
+        if checkpoint_path:
+            save_model(model, str(checkpoint_path), q)
     else:
         if model_was_loaded:
             logger.info('Skipping training - using loaded model from checkpoint')
@@ -656,10 +662,12 @@ def _run_protrider_cv(
         if config.checkpoint_path:
             checkpoint_base = Path(config.checkpoint_path)
             checkpoint_path = checkpoint_base.parent / f"{checkpoint_base.stem}_fold_{fold}{checkpoint_base.suffix}"
-        else:
+        elif config.out_dir:
             checkpoint_path = Path(config.out_dir) / f'model_fold_{fold}.pt'
+        else:
+            checkpoint_path = None  # No checkpoint path available
         
-        if checkpoint_path.exists():
+        if checkpoint_path and checkpoint_path.exists():
             logger.info(f'Attempting to load model from {checkpoint_path}')
             pca_subset = ProtriderSubset.concat([train_subset, val_subset])
             model, q = load_model(pca_subset, str(checkpoint_path), config)
@@ -708,7 +716,7 @@ def _run_protrider_cv(
         logger.info(f'Validation loss after model init: {val_loss}')
         
         # 6. Train model if needed (skip if model was loaded from checkpoint)
-        model_was_loaded = (checkpoint_path.exists() and q is not None)
+        model_was_loaded = (checkpoint_path and checkpoint_path.exists() and q is not None)
         should_train = config.autoencoder_training and not model_was_loaded
         
         if should_train:
@@ -725,7 +733,8 @@ def _run_protrider_cv(
             train_losses_list.append(train_losses)
             
             # Save the trained model to checkpoint
-            save_model(model, str(checkpoint_path), q)
+            if checkpoint_path:
+                save_model(model, str(checkpoint_path), q)
         else:
             if model_was_loaded:
                 logger.info(f'Skipping training for fold {fold} - using loaded model from checkpoint')
