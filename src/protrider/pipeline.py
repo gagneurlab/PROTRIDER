@@ -767,7 +767,8 @@ def _run_protrider_cv(
                                                  patience=config.early_stopping_patience,
                                                  min_delta=config.early_stopping_min_delta,
                                                  wandb=wandb)
-            plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
+            if config.out_dir:
+                plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
             train_losses_list.append(train_losses)
             
             # Save the trained model to checkpoint
