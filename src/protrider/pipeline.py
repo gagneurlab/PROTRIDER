@@ -489,8 +489,6 @@ def _run_protrider_standard(
     # Use custom checkpoint path if specified, otherwise default to out_dir/model.pt
     if config.checkpoint_path:
         checkpoint_path = Path(config.checkpoint_path)
-    elif config.out_dir:
-        checkpoint_path = Path(config.out_dir) / 'model.pt'
     else:
         checkpoint_path = None  # No checkpoint path available
     
@@ -553,9 +551,26 @@ def _run_protrider_standard(
     should_train = config.autoencoder_training and not model_was_loaded
     
     if should_train:
+        wandb = None
+        if config.use_wandb:
+            import wandb as _wandb
+            wandb = _wandb
+            wandb.init(project=config.wandb_project,
+                       name=config.wandb_name,
+                       config={
+                           'latent_dim': q,
+                           'n_layers': config.n_layers,
+                           'h_dim': config.h_dim,
+                           'learning_rate': config.lr,
+                           'n_epochs': config.n_epochs,
+                           'batch_size': config.batch_size,
+                           'presence_absence': config.presence_absence,
+                           'lambda_bce': config.lambda_presence_absence
+                       })
+
         logger.info('Fitting model')
         _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config.n_epochs, learning_rate=float(config.lr),
-                                      batch_size=config.batch_size)
+                                      batch_size=config.batch_size, wandb=wandb)
         df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(
             dataset, model, criterion)
         logger.info('Final loss: %s, mse loss: %s, bce loss: %s',
@@ -564,6 +579,11 @@ def _run_protrider_standard(
         # Save the trained model to checkpoint
         if checkpoint_path:
             save_model(model, str(checkpoint_path), q)
+            if config.use_wandb:
+                wandb.log_model(str(checkpoint_path), 'protrider_model')
+        
+        if config.use_wandb:
+            wandb.finish()
     else:
         if model_was_loaded:
             logger.info('Skipping training - using loaded model from checkpoint')
@@ -662,8 +682,6 @@ def _run_protrider_cv(
         if config.checkpoint_path:
             checkpoint_base = Path(config.checkpoint_path)
             checkpoint_path = checkpoint_base.parent / f"{checkpoint_base.stem}_fold_{fold}{checkpoint_base.suffix}"
-        elif config.out_dir:
-            checkpoint_path = Path(config.out_dir) / f'model_fold_{fold}.pt'
         else:
             checkpoint_path = None  # No checkpoint path available
         
@@ -718,8 +736,27 @@ def _run_protrider_cv(
         # 6. Train model if needed (skip if model was loaded from checkpoint)
         model_was_loaded = (checkpoint_path and checkpoint_path.exists() and q is not None)
         should_train = config.autoencoder_training and not model_was_loaded
-        
         if should_train:
+            wandb = None
+            if config.use_wandb:
+                import wandb as _wandb
+                wandb = _wandb
+                wandb.init(project=config.wandb_project,
+                           name=f"{config.wandb_name}_fold_{fold}",
+                           config={
+                               'latent_dim': q,
+                               'n_layers': config.n_layers,
+                               'h_dim': config.h_dim,
+                               'learning_rate': config.lr,
+                               'n_epochs': config.n_epochs,
+                               'batch_size': config.batch_size,
+                               'presence_absence': config.presence_absence,
+                               'lambda_bce': config.lambda_presence_absence,
+                               'n_folds': config.n_folds,
+                               'early_stopping_patience': config.early_stopping_patience,
+                               'early_stopping_min_delta': config.early_stopping_min_delta,
+                           })
+
             logger.info('Fitting model')
             # todo train validate (hyperparameter tuning)
             # todo pass validation set as well
@@ -728,13 +765,18 @@ def _run_protrider_cv(
                                                  learning_rate=float(config.lr),
                                                  batch_size=config.batch_size,
                                                  patience=config.early_stopping_patience,
-                                                 min_delta=config.early_stopping_min_delta)
+                                                 min_delta=config.early_stopping_min_delta,
+                                                 wandb=wandb)
             plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
             train_losses_list.append(train_losses)
             
             # Save the trained model to checkpoint
             if checkpoint_path:
                 save_model(model, str(checkpoint_path), q)
+                if config.use_wandb:
+                    wandb.log_model(str(checkpoint_path), 'protrider_model')
+            if config.use_wandb:
+                wandb.finish()
         else:
             if model_was_loaded:
                 logger.info(f'Skipping training for fold {fold} - using loaded model from checkpoint')
@@ -791,8 +833,8 @@ def _run_protrider_cv(
         mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs)
         pvals, Z = get_pvals(df_res.values, mu=mu, sigma=sigma, df0=df0,
                              how=config.pval_sided, n_jobs=config.n_jobs)
-        # Repeat df0 for each sample in the output
-        df0_list = [df0] * len(df_out)
+        # When not fitting every fold, use the same df0 for all folds
+        df0_list = [df0] * cv_gen.num_folds
 
     # Compute one-sided p-values (used for some plots)
     pvals_one_sided, _ = get_pvals(df_res.values,

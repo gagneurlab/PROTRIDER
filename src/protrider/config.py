@@ -64,10 +64,15 @@ class ProtriderConfig:
     
     # Cross-validation parameters
     cross_val: bool = False
-    n_folds: Optional[int] = None
+    n_folds: Optional[int] = 5
     early_stopping_patience: int = 50
     early_stopping_min_delta: float = 0.0001
     fit_every_fold: bool = False
+
+    # Wandb logging
+    use_wandb: bool = False
+    wandb_project: Optional[str] = "protrider"
+    wandb_name: Optional[str] = None
     
     # Statistical params
     pval_dist: Literal["gaussian", "t"] = "t"

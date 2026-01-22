@@ -238,7 +238,7 @@ class MSEBCELoss(nn.Module):
 
 
 def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
-              batch_size=None, patience=100, min_delta=0.001):
+              batch_size=None, patience=100, min_delta=0.001, wandb=None):
     # start data;pader
     if batch_size is None:
         batch_size = train_subset.X.shape[0]
@@ -254,7 +254,12 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
     val_losses = []
     for epoch in tqdm(range(n_epochs)):
         train_loss, train_mse_loss, train_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
-
+        if wandb is not None:
+            wandb.log({
+                'train/loss': train_loss,
+                'train/mse_loss': train_mse_loss,
+                'train/bce_loss': train_bce_loss
+            })
         if epoch % val_every_nepochs == 0:
             train_losses.append(train_loss)
             x_hat_val = model(val_subset.X, val_subset.torch_mask, cond=val_subset.covariates)
@@ -263,7 +268,12 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
             val_losses.append(val_loss.detach().cpu().numpy())
             logger.debug('[%d] train loss: %.6f' % (epoch + 1, train_loss))
             logger.debug('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
-
+            if wandb is not None:
+                wandb.log({
+                    'val/loss': val_loss,
+                    'val/mse_loss': val_mse_loss,
+                    'val/bce_loss': val_bce_loss
+                })
             if min_val_loss - val_loss > min_delta:
                 min_val_loss = val_loss
                 best_model_wts = copy.deepcopy(model.state_dict())
@@ -281,7 +291,7 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
     return np.array(train_losses), np.array(val_losses)
 
 
-def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None):
+def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
@@ -296,6 +306,13 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
                                                                           running_mse_loss, running_bce_loss))
         train_losses.append(running_loss)
+        if wandb is not None:
+            wandb.log({
+                'train/loss': running_loss,
+                'train/mse_loss': running_mse_loss,
+                'train/bce_loss': running_bce_loss
+            })
+
     return running_loss, running_mse_loss, running_bce_loss, train_losses
 
 
