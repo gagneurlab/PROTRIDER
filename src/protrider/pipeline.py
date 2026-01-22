@@ -410,7 +410,7 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
     """
     Run PROTRIDER protein outlier detection.
     
-    Automatically dispatches to cross-validation or standard mode based on config.cross_val.use.
+    Automatically dispatches to cross-validation or standard mode based on config.cross_val.
     All inputs including data files are specified in the config.
     
     Args:
@@ -445,7 +445,7 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
         ... )
         >>> result, model_info = run(config_cv)
     """
-    if config.cross_val.use:
+    if config.cross_val:
         logger.info('Running PROTRIDER with cross-validation')
         return _run_protrider_cv(config, config.input_intensities, config.sample_annotation)
     else:
@@ -620,7 +620,7 @@ def _run_protrider_cv(
     # If fit_every_fold is set to True, the model will estimate the residual distribution parameters on every fold
     # using the train-val set.
     # If set to False, the model will estimate the residual distribution parameters on the final test residuals
-    fit_every_fold = config.cross_val.fit_every_fold
+    fit_every_fold = config.fit_every_fold
 
     # 1. Initialize cross validation generator
     logger.info('Initializing cross validation')
@@ -727,8 +727,8 @@ def _run_protrider_cv(
                                                  n_epochs=config.n_epochs,
                                                  learning_rate=float(config.lr),
                                                  batch_size=config.batch_size,
-                                                 patience=config.cross_val.early_stopping_patience,
-                                                 min_delta=config.cross_val.early_stopping_min_delta)
+                                                 patience=config.early_stopping_patience,
+                                                 min_delta=config.early_stopping_min_delta)
             plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
             train_losses_list.append(train_losses)
             
