@@ -2,10 +2,19 @@
 import yaml
 import torch
 from pathlib import Path
-from typing import Union, Callable
+from typing import Union, Callable, Any
 from dataclasses import dataclass, field
 from typing import Optional, List, Literal
 import numpy as np
+
+@dataclass
+class CrossValConfig:
+    """Cross-validation configuration."""
+    use: bool = False
+    n_folds: Optional[int] = None
+    early_stopping_patience: int = 50
+    early_stopping_min_delta: float = 0.0001
+    fit_every_fold: bool = False
 
 @dataclass
 class ProtriderConfig:
@@ -62,12 +71,12 @@ class ProtriderConfig:
     presence_absence: bool = False
     lambda_presence_absence: float = 0.5
     
-    # Cross-validation parameters
-    cross_val: bool = False
-    n_folds: Optional[int] = None
-    early_stopping_patience: int = 50
-    early_stopping_min_delta: float = 0.0001
-    fit_every_fold: bool = False
+    # Cross-validation parameters (can be bool for backward compatibility or CrossValConfig dict)
+    cross_val: Union[bool, dict, CrossValConfig] = False
+    n_folds: Optional[int] = None  # Deprecated, use cross_val.n_folds
+    early_stopping_patience: int = 50  # Deprecated, use cross_val.early_stopping_patience
+    early_stopping_min_delta: float = 0.0001  # Deprecated, use cross_val.early_stopping_min_delta
+    fit_every_fold: bool = False  # Deprecated, use cross_val.fit_every_fold
     
     # Statistical params
     pval_dist: Literal["gaussian", "t"] = "t"
@@ -133,6 +142,19 @@ class ProtriderConfig:
         
         # Set PyTorch device
         self.device_torch = torch.device("cuda" if (torch.cuda.is_available() and self.device == 'gpu') else "cpu")
+        
+        # Handle cross_val: convert dict to CrossValConfig if needed
+        if isinstance(self.cross_val, dict):
+            self.cross_val = CrossValConfig(**self.cross_val)
+        elif isinstance(self.cross_val, bool):
+            # Backward compatibility: convert bool to CrossValConfig
+            self.cross_val = CrossValConfig(
+                use=self.cross_val,
+                n_folds=self.n_folds,
+                early_stopping_patience=self.early_stopping_patience,
+                early_stopping_min_delta=self.early_stopping_min_delta,
+                fit_every_fold=self.fit_every_fold
+            )
     
     def save(self, out_dir: Union[str, Path]) -> None:
         """
@@ -168,11 +190,17 @@ class ProtriderConfig:
         """
         import dataclasses
         
-        return {
+        result = {
             f.name: getattr(self, f.name)
             for f in dataclasses.fields(self)
             if f.init  # Only include fields that are initialized (excludes computed fields)
         }
+        
+        # Convert CrossValConfig to dict for YAML serialization
+        if isinstance(result.get('cross_val'), CrossValConfig):
+            result['cross_val'] = dataclasses.asdict(result['cross_val'])
+        
+        return result
 
 
 def load_config(config_path: Union[str, Path]) -> ProtriderConfig:

@@ -50,11 +50,12 @@ presence_absence: False
 lambda_presence_absence: 0.5
 
 ## Cross-validation parameters
-cross_val: False # run protrider in k-fold cross-validation mode; only implemented for OHT; defaults to False
-#n_folds: 5 # number of folds for cross-validation; defaults to 5
-#early_stopping_patience: 50 # patience for early stopping
-#early_stopping_min_delta: 0.0001 # minimum difference to monitor for early stopping
-#fit_every_fold: False # fit residual model for every fold; defaults to false
+cross_val: 
+  use: False # run protrider in k-fold cross-validation mode; only implemented for OHT; defaults to False
+  #n_folds: 5 # number of folds for cross-validation; defaults to 5
+  #early_stopping_patience: 50 # patience for early stopping
+  #early_stopping_min_delta: 0.0001 # minimum difference to monitor for early stopping
+  #fit_every_fold: False # fit residual model for every fold; defaults to false
 
 ## Stat params
 pval_dist: 't' # Distribution choice for P-value computation. Options: gaussian, t
