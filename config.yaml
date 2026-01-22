@@ -68,3 +68,10 @@ report_all: True
 
 verbose: False
 device: 'gpu'
+
+## Model checkpoint
+# Path to save/load model checkpoint (optional)
+# If None: saves to out_dir/model.pt (or model_fold_N.pt for CV)
+# If specified and exists: loads model from this path and skips training
+# If specified and doesn't exist: trains and saves to this path
+# checkpoint_path: 'path/to/checkpoint.pt'

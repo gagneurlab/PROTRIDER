@@ -52,6 +52,19 @@ To run PROTRIDER, a configuration file needs to be provided. This can be adapted
 - `cov_used`: List of column names contained in the sample annotation file to be included as known covariates.
 - `find_q_method`: Method to determine latent space dimension of autoencoder.
 - `pval_dist`: Distribution (Gaussian or Student's t-test) for P-value calculation.
+- `checkpoint_path`: (Optional) Path to save/load model checkpoint. If not specified, models are saved to `<out_dir>/model.pt`.
+
+### Model Checkpointing
+
+PROTRIDER automatically saves trained models and reuses them in subsequent runs, skipping training if a checkpoint exists. By default, models are saved to `<out_dir>/model.pt` (or `model_fold_N.pt` for cross-validation).
+
+To use a custom checkpoint location, set `checkpoint_path` in your config:
+
+```yaml
+checkpoint_path: 'models/my_model.pt'  # Custom checkpoint location
+```
+
+To force retraining, delete the checkpoint file or specify a different path.
 
 ### Running PROTRIDER from the command line
 

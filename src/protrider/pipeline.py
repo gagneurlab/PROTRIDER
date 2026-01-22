@@ -4,6 +4,7 @@ from typing import Union, Tuple, Literal, Optional
 import logging
 import torch
 from dataclasses import dataclass
+from pathlib import Path
 
 from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
@@ -15,6 +16,81 @@ from .config import ProtriderConfig
 __all__ = ["run"]
 
 logger = logging.getLogger(__name__)
+
+
+def save_model(model: ProtriderAutoencoder, checkpoint_path: str, q: int) -> None:
+    """Save model state dict and metadata to checkpoint path.
+    
+    Args:
+        model: Trained ProtriderAutoencoder model
+        checkpoint_path: Path where to save the model checkpoint
+        q: Latent dimension
+    """
+    checkpoint_path = Path(checkpoint_path)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save model state dict and metadata
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'q': q,
+        'n_layers': model.n_layers,
+        'presence_absence': model.presence_absence,
+    }, checkpoint_path)
+    
+    logger.info(f'Saved model to {checkpoint_path}')
+
+
+def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_path: str, 
+               config: ProtriderConfig) -> Tuple[Optional[ProtriderAutoencoder], Optional[int]]:
+    """Load model from checkpoint path if it exists.
+    
+    Args:
+        dataset: Dataset used for model initialization
+        checkpoint_path: Path to the model checkpoint file
+        config: ProtriderConfig object
+        
+    Returns:
+        Tuple of (model, q) if model exists and loads successfully, (None, None) otherwise
+    """
+    checkpoint_path = Path(checkpoint_path)
+    
+    if not checkpoint_path.exists():
+        logger.info(f'No existing model found at {checkpoint_path}')
+        return None, None
+    
+    try:
+        # Load checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location=config.device_torch)
+        q = checkpoint['q']
+        n_layers = checkpoint['n_layers']
+        presence_absence = checkpoint.get('presence_absence', False)
+        
+        logger.info(f'Loading model from {checkpoint_path} (q={q}, n_layers={n_layers})')
+        
+        # Initialize model with saved architecture
+        n_cov = dataset.covariates.shape[1]
+        n_prots = dataset.X.shape[1]
+        model = ProtriderAutoencoder(
+            in_dim=n_prots, 
+            latent_dim=q, 
+            n_layers=n_layers, 
+            h_dim=config.h_dim, 
+            n_cov=n_cov,
+            prot_means=dataset.prot_means_torch,
+            presence_absence=presence_absence
+        )
+        model.double().to(config.device_torch)
+        
+        # Load state dict
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        logger.info('Successfully loaded model')
+        return model, q
+        
+    except Exception as e:
+        logger.warning(f'Failed to load model from {checkpoint_path}: {e}')
+        return None, None
+
 
 @dataclass
 class Result:
@@ -407,39 +483,53 @@ def _run_protrider_standard(
                                device=config.device_torch,
                                input_format=config.input_format)
 
-    # 2. Find latent dim
-    logger.info('Finding latent dimension')
-    q = find_latent_dim(dataset, method=config.find_q_method,
-                        # Params for grid search method
-                        inj_freq=config.inj_freq,
-                        inj_mean=config.inj_mean,
-                        inj_sd=config.inj_sd,
-                        init_wPCA=config.init_pca,
-                        n_layers=config.n_layers,
-                        h_dim=config.h_dim,
-                        n_epochs=config.gs_epochs if config.gs_epochs else config.n_epochs,
-                        learning_rate=config.lr,
-                        batch_size=config.batch_size,
-                        pval_sided=config.pval_sided,
-                        pval_dist=config.pval_dist,
-                        out_dir=config.out_dir,
-                        device=config.device_torch,
-                        presence_absence=config.presence_absence,
-                        lambda_bce=config.lambda_presence_absence,
-                        n_jobs=config.n_jobs
-                        )
+    # 2. Determine checkpoint path and try to load existing model
+    model = None
+    q = None
+    # Use custom checkpoint path if specified, otherwise default to out_dir/model.pt
+    checkpoint_path = Path(config.checkpoint_path) if config.checkpoint_path else Path(config.out_dir) / 'model.pt'
+    
+    if checkpoint_path.exists():
+        logger.info(f'Attempting to load model from {checkpoint_path}')
+        model, q = load_model(dataset, str(checkpoint_path), config)
+    
+    # 3. If model not loaded, find latent dim and initialize new model
+    if model is None:
+        logger.info('Finding latent dimension')
+        q = find_latent_dim(dataset, method=config.find_q_method,
+                            # Params for grid search method
+                            inj_freq=config.inj_freq,
+                            inj_mean=config.inj_mean,
+                            inj_sd=config.inj_sd,
+                            init_wPCA=config.init_pca,
+                            n_layers=config.n_layers,
+                            h_dim=config.h_dim,
+                            n_epochs=config.gs_epochs if config.gs_epochs else config.n_epochs,
+                            learning_rate=config.lr,
+                            batch_size=config.batch_size,
+                            pval_sided=config.pval_sided,
+                            pval_dist=config.pval_dist,
+                            out_dir=config.out_dir,
+                            device=config.device_torch,
+                            presence_absence=config.presence_absence,
+                            lambda_bce=config.lambda_presence_absence,
+                            n_jobs=config.n_jobs
+                            )
 
-    logger.info(
-        f'Latent dimension found with method {config.find_q_method}: {q}')
+        logger.info(
+            f'Latent dimension found with method {config.find_q_method}: {q}')
 
-    # 3. Init model with found latent dim
-    model = init_model(dataset, q,
-                       init_wPCA=config.init_pca,
-                       n_layer=config.n_layers,
-                       h_dim=config.h_dim,
-                       device=config.device_torch,
-                       presence_absence=config.presence_absence if config.n_layers == 1 else False
-                       )
+        # Init model with found latent dim
+        model = init_model(dataset, q,
+                           init_wPCA=config.init_pca,
+                           n_layer=config.n_layers,
+                           h_dim=config.h_dim,
+                           device=config.device_torch,
+                           presence_absence=config.presence_absence if config.n_layers == 1 else False
+                           )
+    else:
+        logger.info(f'Using loaded model with q={q}')
+    
     criterion = MSEBCELoss(
         presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
     logger.info('Model:\n%s', model)
@@ -452,16 +542,25 @@ def _run_protrider_standard(
                 init_bce_loss)
     final_loss = 10**4
     train_losses = []
-    if config.autoencoder_training:
+    
+    # 5. Train model if needed (skip if model was loaded from checkpoint)
+    model_was_loaded = (checkpoint_path.exists() and q is not None)
+    should_train = config.autoencoder_training and not model_was_loaded
+    
+    if should_train:
         logger.info('Fitting model')
-        # 5. Train model
         _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config.n_epochs, learning_rate=float(config.lr),
                                       batch_size=config.batch_size)
         df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(
             dataset, model, criterion)
         logger.info('Final loss: %s, mse loss: %s, bce loss: %s',
                     final_loss, final_mse_loss, final_bce_loss)
+        
+        # Save the trained model to checkpoint
+        save_model(model, str(checkpoint_path), q)
     else:
+        if model_was_loaded:
+            logger.info('Skipping training - using loaded model from checkpoint')
         final_loss = init_loss
 
     # 6. Compute residuals, pvals, zscores
@@ -550,34 +649,52 @@ def _run_protrider_cv(
         logger.info(f'Validation subset size: {len(val_subset)}')
         logger.info(f'Test subset size: {len(test_subset)}')
 
-        # 3. Find latent dim
-        logger.info('Finding latent dimension')
-        pca_subset = ProtriderSubset.concat([train_subset, val_subset])
-        q = find_latent_dim(pca_subset, method=config.find_q_method,
-                            # Params for grid search method
-                            inj_freq=config.inj_freq,
-                            inj_mean=config.inj_mean,
-                            inj_sd=config.inj_sd,
-                            init_wPCA=config.init_pca,
-                            n_layers=config.n_layers,
-                            h_dim=config.h_dim,
-                            n_epochs=config.gs_epochs if config.gs_epochs else config.n_epochs,
-                            learning_rate=config.lr,
-                            batch_size=config.batch_size,
-                            pval_sided=config.pval_sided,
-                            pval_dist=config.pval_dist,
-                            out_dir=config.out_dir,
-                            device=config.device_torch,
-                            presence_absence=config.presence_absence,
-                            lambda_bce=config.lambda_presence_absence,
-                            n_jobs=config.n_jobs
-                            )
-        logger.info(
-            f'Latent dimension found with method {config.find_q_method}: {q}')
+        # 3. Determine checkpoint path and try to load existing model for this fold
+        model = None
+        q = None
+        # Use custom checkpoint path if specified, otherwise default to out_dir/model_fold_N.pt
+        if config.checkpoint_path:
+            checkpoint_base = Path(config.checkpoint_path)
+            checkpoint_path = checkpoint_base.parent / f"{checkpoint_base.stem}_fold_{fold}{checkpoint_base.suffix}"
+        else:
+            checkpoint_path = Path(config.out_dir) / f'model_fold_{fold}.pt'
+        
+        if checkpoint_path.exists():
+            logger.info(f'Attempting to load model from {checkpoint_path}')
+            pca_subset = ProtriderSubset.concat([train_subset, val_subset])
+            model, q = load_model(pca_subset, str(checkpoint_path), config)
+        
+        # 4. If model not loaded, find latent dim and initialize new model
+        if model is None:
+            logger.info('Finding latent dimension')
+            pca_subset = ProtriderSubset.concat([train_subset, val_subset])
+            q = find_latent_dim(pca_subset, method=config.find_q_method,
+                                # Params for grid search method
+                                inj_freq=config.inj_freq,
+                                inj_mean=config.inj_mean,
+                                inj_sd=config.inj_sd,
+                                init_wPCA=config.init_pca,
+                                n_layers=config.n_layers,
+                                h_dim=config.h_dim,
+                                n_epochs=config.gs_epochs if config.gs_epochs else config.n_epochs,
+                                learning_rate=config.lr,
+                                batch_size=config.batch_size,
+                                pval_sided=config.pval_sided,
+                                pval_dist=config.pval_dist,
+                                out_dir=config.out_dir,
+                                device=config.device_torch,
+                                presence_absence=config.presence_absence,
+                                lambda_bce=config.lambda_presence_absence,
+                                n_jobs=config.n_jobs
+                                )
+            logger.info(
+                f'Latent dimension found with method {config.find_q_method}: {q}')
 
-        # 4. Init model with found latent dim
-        model = init_model(train_subset, q, init_wPCA=config.init_pca, n_layer=config.n_layers,
-                           h_dim=config.h_dim, device=config.device_torch, presence_absence=config.presence_absence)
+            # Init model with found latent dim
+            model = init_model(train_subset, q, init_wPCA=config.init_pca, n_layer=config.n_layers,
+                               h_dim=config.h_dim, device=config.device_torch, presence_absence=config.presence_absence)
+        else:
+            logger.info(f'Using loaded model for fold {fold} with q={q}')
 
         logger.info('Model:\n%s', model)
         logger.info('Device: %s', config.device_torch)
@@ -589,9 +706,13 @@ def _run_protrider_cv(
             val_subset, model, criterion)
         logger.info(f'Train loss after model init: {train_loss}')
         logger.info(f'Validation loss after model init: {val_loss}')
-        if config.autoencoder_training:
+        
+        # 6. Train model if needed (skip if model was loaded from checkpoint)
+        model_was_loaded = (checkpoint_path.exists() and q is not None)
+        should_train = config.autoencoder_training and not model_was_loaded
+        
+        if should_train:
             logger.info('Fitting model')
-            # 6. Train model
             # todo train validate (hyperparameter tuning)
             # todo pass validation set as well
             train_losses, val_losses = train_val(train_subset, val_subset, model, criterion,
@@ -602,7 +723,12 @@ def _run_protrider_cv(
                                                  min_delta=config.early_stopping_min_delta)
             plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
             train_losses_list.append(train_losses)
+            
+            # Save the trained model to checkpoint
+            save_model(model, str(checkpoint_path), q)
         else:
+            if model_was_loaded:
+                logger.info(f'Skipping training for fold {fold} - using loaded model from checkpoint')
             train_losses_list.append([])
 
         df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
