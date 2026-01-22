@@ -254,13 +254,6 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
     val_losses = []
     for epoch in tqdm(range(n_epochs)):
         train_loss, train_mse_loss, train_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
-        if wandb is not None:
-            wandb.log({
-                f'{wandb_prefix}train_loss': train_loss,
-                f'{wandb_prefix}train_mse_loss': train_mse_loss,
-                f'{wandb_prefix}train_bce_loss': train_bce_loss,
-                f'{wandb_prefix}epoch': epoch
-            })
         if epoch % val_every_nepochs == 0:
             train_losses.append(train_loss)
             x_hat_val = model(val_subset.X, val_subset.torch_mask, cond=val_subset.covariates)
@@ -271,6 +264,10 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
             logger.debug('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
             if wandb is not None:
                 wandb.log({
+                    f'{wandb_prefix}train_loss': train_loss,
+                    f'{wandb_prefix}train_mse_loss': train_mse_loss,
+                    f'{wandb_prefix}train_bce_loss': train_bce_loss,
+                    f'{wandb_prefix}epoch': epoch,
                     f'{wandb_prefix}val_loss': val_loss,
                     f'{wandb_prefix}val_mse_loss': val_mse_loss,
                     f'{wandb_prefix}val_bce_loss': val_bce_loss
