@@ -60,7 +60,7 @@ def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_pat
     
     try:
         # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location=config.device_torch)
+        checkpoint = torch.load(checkpoint_path, map_location=config.device_torch, weights_only=False)
         q = checkpoint['q']
         n_layers = checkpoint['n_layers']
         presence_absence = checkpoint.get('presence_absence', False)
