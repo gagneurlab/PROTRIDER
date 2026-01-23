@@ -76,7 +76,7 @@ def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_pat
             n_layers=n_layers, 
             h_dim=config.h_dim, 
             n_cov=n_cov,
-            prot_means=dataset.prot_means_torch,
+            prot_means=None,
             presence_absence=presence_absence
         )
         model.double().to(config.device_torch)
