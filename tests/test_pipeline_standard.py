@@ -135,6 +135,8 @@ class TestPipelineStandardMode:
             assert (out_dir / 'residuals.csv').exists()
             assert (out_dir / 'log2fc.csv').exists()
             assert (out_dir / 'fc.csv').exists()
+            assert (out_dir/ 'degrees_of_freedom.csv').exists()
+
     
     def test_save_results_long_format(self, protein_intensities_path, protein_intensities_index_col):
         """Test saving results in long format."""
@@ -156,6 +158,7 @@ class TestPipelineStandardMode:
             # Check that output file was created (long format saves as protrider_summary.csv)
             out_dir = Path(tmp_dir)
             assert (out_dir / 'protrider_summary.csv').exists()
+            assert (out_dir/ 'degrees_of_freedom.csv').exists()
             
             # Load and check structure
             output_df = pd.read_csv(out_dir / 'protrider_summary.csv')

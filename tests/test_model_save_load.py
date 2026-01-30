@@ -185,25 +185,5 @@ def test_default_checkpoint_behavior(temp_output_dir):
     assert model_info1.q == model_info2.q, "Should load from default location"
 
 
-def test_cv_checkpoint_naming(temp_output_dir):
-    """Test that CV checkpoints use fold-specific naming."""
-    config = ProtriderConfig(
-        input_intensities='sample_data/protrider_sample_dataset.tsv',
-        out_dir=temp_output_dir,
-        cross_val=True,
-        n_folds=3,
-        n_epochs=2,
-        device='cpu',
-        find_q_method='5'
-    )
-    
-    result, model_info = run(config)
-    
-    # Verify fold-specific checkpoints exist
-    for fold in range(3):
-        fold_checkpoint = Path(temp_output_dir) / f'model_fold_{fold}.pt'
-        assert fold_checkpoint.exists(), f"Fold {fold} checkpoint should exist"
-
-
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

@@ -21,7 +21,6 @@ class ModelInfo:
     n_epochs: np.array
     test_loss: np.array
     train_losses: np.array
-    df0: np.array = None  # Degrees of freedom for the t-distribution, if applicable
     df_folds: Optional[pd.DataFrame] = None  # DataFrame with fold assignments (for CV runs)
     
     def save(self, out_dir: str) -> None:

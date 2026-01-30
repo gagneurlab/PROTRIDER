@@ -61,13 +61,6 @@ class ProtriderConfig:
     # Presence absence modelling
     presence_absence: bool = False
     lambda_presence_absence: float = 0.5
-    
-    # Cross-validation parameters
-    cross_val: bool = False
-    n_folds: Optional[int] = 5
-    early_stopping_patience: int = 50
-    early_stopping_min_delta: float = 0.0001
-    fit_every_fold: bool = False
 
     # Wandb logging
     use_wandb: bool = False
@@ -79,6 +72,7 @@ class ProtriderConfig:
     pval_adj: Literal["by", "bh"] = "by"
     pval_sided: Literal["two-sided", "left", "right"] = "two-sided"
     pseudocount: float = 0.01
+    common_degrees_freedom: bool = True  # whether to use common degrees of freedom; more stable for small datasets
     
     # Reporting params
     outlier_threshold: float = 0.1

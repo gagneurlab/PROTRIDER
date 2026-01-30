@@ -76,7 +76,7 @@ def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_pat
             n_layers=n_layers, 
             h_dim=config.h_dim, 
             n_cov=n_cov,
-            prot_means=None,
+            prot_means=dataset.prot_means_torch,
             presence_absence=presence_absence
         )
         model.double().to(config.device_torch)
@@ -108,11 +108,12 @@ class Result:
     n_out_median: int
     n_out_max: int
     n_out_total: int
+    degrees_freedom: np.ndarray = None  # Degrees of freedom for t-distribution, if applicable
     pval_dist: str = 'gaussian'  # Distribution used for p-value computation
     outlier_threshold: float = 0.1  # Threshold for determining outliers
     
     def save(self, out_dir: str, format: Literal["wide", "long"] = "wide", 
-             include_all: bool = False) -> Optional[pd.DataFrame]:
+             include_all: bool = False):
         """
         Save result dataframes to CSV files.
         
@@ -127,6 +128,13 @@ class Result:
             DataFrame if format="long", None if format="wide"
             
         """
+        # save degrees of freedom if applicable
+        if self.degrees_freedom is not None:
+            out_p = f'{out_dir}/degrees_of_freedom.csv'
+            df_df = pd.DataFrame(self.degrees_freedom, index=self.dataset.data.columns, columns=['degrees_of_freedom'])
+            df_df.to_csv(out_p, header=True, index=True)
+            logger.info(f'Saved degrees of freedom to {out_p}')
+
         if format == "wide":
             logger.info('=== Saving results in wide format ===')
             
@@ -180,13 +188,8 @@ class Result:
             self.fc.T.to_csv(out_p, header=True, index=True)
             logger.info(f"Saved fc scores to {out_p}")
             
-            return None
-            
         elif format == "long":
             logger.info('=== Saving results in long format ===')
-            
-            # Stack all dataframes at once for efficient melting
-            import pandas as pd
             
             # Create a multi-index dataframe with all values
             dfs_to_melt = {
@@ -223,8 +226,6 @@ class Result:
             out_p = f"{out_dir}/protrider_summary.csv"
             df_res.to_csv(out_p, index=None)
             logger.info(f'Saved output summary with shape {df_res.shape} to {out_p}')
-            
-            return df_res
     
     def plot_pvals(self, out_dir: str = None, **kwargs):
         """
@@ -445,12 +446,8 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
         ... )
         >>> result, model_info = run(config_cv)
     """
-    if config.cross_val:
-        logger.info('Running PROTRIDER with cross-validation')
-        return _run_protrider_cv(config, config.input_intensities, config.sample_annotation)
-    else:
-        logger.info('Running PROTRIDER in standard mode')
-        return _run_protrider_standard(config, config.input_intensities, config.sample_annotation)
+    logger.info('Running PROTRIDER in standard mode')
+    return _run_protrider_standard(config, config.input_intensities, config.sample_annotation)
 
 
 def _run_protrider_standard(
@@ -490,7 +487,7 @@ def _run_protrider_standard(
     if config.checkpoint_path:
         checkpoint_path = Path(config.checkpoint_path)
     else:
-        checkpoint_path = None  # No checkpoint path available
+        checkpoint_path = Path(config.out_dir) / 'model.pt'
     
     if checkpoint_path and checkpoint_path.exists():
         logger.info(f'Attempting to load model from {checkpoint_path}')
@@ -516,6 +513,7 @@ def _run_protrider_standard(
                             device=config.device_torch,
                             presence_absence=config.presence_absence,
                             lambda_bce=config.lambda_presence_absence,
+                            common_degrees_freedom=config.common_degrees_freedom,
                             n_jobs=config.n_jobs
                             )
 
@@ -593,17 +591,17 @@ def _run_protrider_standard(
     logger.info('Computing statistics')
     df_res = dataset.data - df_out  # log data - pred data
 
-    mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs)
+    mu, sigma, degrees_freedom = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs, use_common_df=config.common_degrees_freedom)
     pvals, Z = get_pvals(df_res.values,
                          mu=mu,
                          sigma=sigma,
-                         df0=df0,
+                         df=degrees_freedom,
                          how=config.pval_sided,
                          dis=config.pval_dist, n_jobs=config.n_jobs)
     pvals_one_sided, _ = get_pvals(df_res.values,
                                    mu=mu,
                                    sigma=sigma,
-                                   df0=df0,
+                                   df=degrees_freedom,
                                    how='left',
                                    dis=config.pval_dist, n_jobs=config.n_jobs)
 
@@ -611,293 +609,10 @@ def _run_protrider_standard(
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
                              pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
                              pseudocount=config.pseudocount, outlier_threshold=config.outlier_threshold,
-                             base_fn=config.base_fn, pval_dist=config.pval_dist)
+                             base_fn=config.base_fn, pval_dist=config.pval_dist, degrees_freedom=degrees_freedom)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
-                           train_losses=np.array(train_losses), df_folds=None, df0=np.array(df0))
-    return result, model_info
-
-
-def _run_protrider_cv(
-    config: ProtriderConfig,
-    input_intensities: Union[str, pd.DataFrame],
-    sample_annotation: Union[str, pd.DataFrame, None]
-) -> Tuple[Result, ModelInfo]:
-    """
-    Perform protein outlier detection with cross-validation (internal function).
-    
-    Args:
-        config: ProtriderConfig object with all configuration parameters
-        input_intensities: Protein intensities as file path or pandas DataFrame
-                          - File: columns = samples, rows = proteins
-                          - DataFrame: rows = samples, columns = proteins
-        sample_annotation: Sample annotations as file path, DataFrame, or None
-                          - Format: rows = samples
-
-    Returns:
-        Tuple of (Result, ModelInfo) - ModelInfo.df_folds contains fold assignments for CV
-    """
-    # If fit_every_fold is set to True, the model will estimate the residual distribution parameters on every fold
-    # using the train-val set.
-    # If set to False, the model will estimate the residual distribution parameters on the final test residuals
-    fit_every_fold = config.fit_every_fold
-
-    # 1. Initialize cross validation generator
-    logger.info('Initializing cross validation')
-    if config.n_folds is not None:
-        cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config.index_col,
-                                           config.cov_used, config.max_allowed_NAs_per_protein, config.log_func,
-                                           num_folds=config.n_folds, device=config.device_torch,
-                                           input_format=config.input_format)
-    else:
-        cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config.index_col, config.cov_used,
-                                         config.max_allowed_NAs_per_protein, config.log_func, device=config.device_torch,
-                                         input_format=config.input_format)
-    dataset = cv_gen.dataset
-    criterion = MSEBCELoss(
-        presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
-    # test results
-    pvals_list = []
-    Z_list = []
-    df_out_list = []
-    df_res_list = []
-    df_presence_list = []
-    test_loss_list = []
-    train_losses_list = []
-    q_list = []
-    df0_list = []
-    folds_list = []
-    
-    # Initialize wandb for CV mode
-    wandb_module = None
-    if config.use_wandb:
-        try:
-            import wandb as wandb_module
-            wandb_module.init(project=config.wandb_project,
-                      name=config.wandb_name,
-                      config={
-                          'mode': 'cross_validation',
-                          'n_folds': config.n_folds if config.n_folds else 'LOOCV',
-                          'n_layers': config.n_layers,
-                          'h_dim': config.h_dim,
-                          'learning_rate': config.lr,
-                          'n_epochs': config.n_epochs,
-                          'batch_size': config.batch_size,
-                          'presence_absence': config.presence_absence,
-                          'lambda_bce': config.lambda_presence_absence,
-                          'early_stopping_patience': config.early_stopping_patience,
-                          'early_stopping_min_delta': config.early_stopping_min_delta,
-                          'fit_every_fold': config.fit_every_fold,
-                      })
-        except Exception as e:
-            logger.warning(f'Failed to initialize wandb: {e}')
-            wandb_module = None
-    
-    # 2. Loop over folds
-    for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
-
-        logger.info(f'Fold {fold}')
-        logger.info(f'Train subset size: {len(train_subset)}')
-        logger.info(f'Validation subset size: {len(val_subset)}')
-        logger.info(f'Test subset size: {len(test_subset)}')
-
-        # 3. Determine checkpoint path and try to load existing model for this fold
-        model = None
-        q = None
-        # Use custom checkpoint path if specified, otherwise default to out_dir/model_fold_N.pt
-        if config.checkpoint_path:
-            checkpoint_base = Path(config.checkpoint_path)
-            checkpoint_path = checkpoint_base.parent / f"{checkpoint_base.stem}_fold_{fold}{checkpoint_base.suffix}"
-        else:
-            checkpoint_path = None  # No checkpoint path available
-        
-        if checkpoint_path and checkpoint_path.exists():
-            logger.info(f'Attempting to load model from {checkpoint_path}')
-            pca_subset = ProtriderSubset.concat([train_subset, val_subset])
-            model, q = load_model(pca_subset, str(checkpoint_path), config)
-        
-        # 4. If model not loaded, find latent dim and initialize new model
-        if model is None:
-            logger.info('Finding latent dimension')
-            pca_subset = ProtriderSubset.concat([train_subset, val_subset])
-            q = find_latent_dim(pca_subset, method=config.find_q_method,
-                                # Params for grid search method
-                                inj_freq=config.inj_freq,
-                                inj_mean=config.inj_mean,
-                                inj_sd=config.inj_sd,
-                                init_wPCA=config.init_pca,
-                                n_layers=config.n_layers,
-                                h_dim=config.h_dim,
-                                n_epochs=config.gs_epochs if config.gs_epochs else config.n_epochs,
-                                learning_rate=config.lr,
-                                batch_size=config.batch_size,
-                                pval_sided=config.pval_sided,
-                                pval_dist=config.pval_dist,
-                                out_dir=config.out_dir,
-                                device=config.device_torch,
-                                presence_absence=config.presence_absence,
-                                lambda_bce=config.lambda_presence_absence,
-                                n_jobs=config.n_jobs
-                                )
-            logger.info(
-                f'Latent dimension found with method {config.find_q_method}: {q}')
-
-            # Init model with found latent dim
-            model = init_model(train_subset, q, init_wPCA=config.init_pca, n_layer=config.n_layers,
-                               h_dim=config.h_dim, device=config.device_torch, presence_absence=config.presence_absence)
-        else:
-            logger.info(f'Using loaded model for fold {fold} with q={q}')
-
-        logger.info('Model:\n%s', model)
-        logger.info('Device: %s', config.device_torch)
-
-        # 5. Compute initial MSE loss
-        df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
-                                                                                                 criterion)
-        df_out_val, df_presence_val, val_loss, val_mse_loss, val_bce_loss = _inference(
-            val_subset, model, criterion)
-        logger.info(f'Train loss after model init: {train_loss}')
-        logger.info(f'Validation loss after model init: {val_loss}')
-        
-        # 6. Train model if needed (skip if model was loaded from checkpoint)
-        model_was_loaded = (checkpoint_path and checkpoint_path.exists() and q is not None)
-        should_train = config.autoencoder_training and not model_was_loaded
-        if should_train:
-            logger.info('Fitting model')
-            # todo train validate (hyperparameter tuning)
-            # todo pass validation set as well
-            train_losses, val_losses = train_val(train_subset, val_subset, model, criterion,
-                                                 n_epochs=config.n_epochs,
-                                                 learning_rate=float(config.lr),
-                                                 batch_size=config.batch_size,
-                                                 patience=config.early_stopping_patience,
-                                                 min_delta=config.early_stopping_min_delta,
-                                                 wandb=wandb_module,
-                                                 wandb_prefix=f'fold_{fold}/')
-            if config.out_dir:
-                plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
-            train_losses_list.append(train_losses)
-            
-            # Save the trained model to checkpoint
-            if checkpoint_path:
-                save_model(model, str(checkpoint_path), q)
-                if wandb_module is not None:
-                    try:
-                        # Log model as artifact
-                        model_artifact = wandb_module.Artifact(f'model_fold_{fold}', type='model')
-                        model_artifact.add_file(str(checkpoint_path))
-                        wandb_module.log_artifact(model_artifact)
-                    except Exception as e:
-                        logger.warning(f'Failed to log model artifact for fold {fold}: {e}')
-        else:
-            if model_was_loaded:
-                logger.info(f'Skipping training for fold {fold} - using loaded model from checkpoint')
-            train_losses_list.append([])
-
-        df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
-                                                                                                 criterion)
-        df_out_val, df_presence_val, val_loss, val_mse_loss, val_bce_loss = _inference(
-            val_subset, model, criterion)
-        logger.info(f'Fold {fold} train loss: {train_loss}')
-        logger.info(f'Fold {fold} validation loss: {val_loss}')
-
-        # 7. Compute residuals on test set
-        logger.info('Running model on test set')
-        df_out_test, df_presence_test, test_loss, test_mse_loss, test_bce_loss = _inference(test_subset, model,
-                                                                                            criterion)
-        logger.info(f'Fold {fold} test loss: {test_loss}')
-        df_res_test = test_subset.data - df_out_test  # log data - pred data
-
-        # Log fold summary metrics to wandb
-        if wandb_module is not None:
-            try:
-                wandb_module.log({
-                    f'fold_{fold}/latent_dim': q,
-                    f'fold_{fold}/test_loss': test_loss,
-                    f'fold_{fold}/test_mse_loss': test_mse_loss,
-                    f'fold_{fold}/test_bce_loss': test_bce_loss,
-                    f'fold_{fold}/final_train_loss': train_loss,
-                    f'fold_{fold}/final_val_loss': val_loss,
-                })
-            except Exception as e:
-                logger.warning(f'Failed to log fold {fold} summary metrics: {e}')
-
-        df_out_list.append(df_out_test)
-        if df_presence_test is not None:
-            df_presence_list.append(df_presence_test)
-        df_res_list.append(df_res_test)
-        test_loss_list.append(test_loss)
-        q_list.append(q)
-        folds_list.extend([fold] * len(df_out_test))
-
-        if fit_every_fold:
-            # 8. Fit residual distribution on train-val set
-            logger.info(
-                'Estimating residual distribution parameters on train-val set')
-            df_res_val = val_subset.data - df_out_val  # log data - pred data
-            df_res_train = train_subset.data - df_out_train  # log data - pred data
-            mu, sigma, df0 = fit_residuals(
-                pd.concat([df_res_train, df_res_val]).values, dis=config.pval_dist, n_jobs=config.n_jobs)
-            pvals, Z = get_pvals(df_res_test.values, mu=mu,
-                                 sigma=sigma, df0=df0, how=config.pval_sided, n_jobs=config.n_jobs)
-            pvals_list.append(pvals)
-            Z_list.append(Z)
-            df0_list.append(df0)
-
-    df_res = pd.concat(df_res_list)
-    df_out = pd.concat(df_out_list)
-    df_presence = pd.concat(
-        df_presence_list) if df_presence_list != [] else None
-    df_folds = pd.DataFrame({'fold': folds_list, }, index=df_out.index)
-
-    # Log fold assignments to wandb
-    if wandb_module is not None:
-        try:
-            # Log fold assignments as table
-            df_folds_with_samples = df_folds.reset_index().rename(columns={'index': 'sample'})
-            fold_table = wandb_module.Table(dataframe=df_folds_with_samples)
-            wandb_module.log({"cv_fold_assignments": fold_table})
-        except Exception as e:
-            logger.warning(f'Failed to log fold assignments to wandb: {e}')
-
-    # Compute p-values on test set
-    if fit_every_fold:
-        pvals = np.concatenate(pvals_list)
-        Z = np.concatenate(Z_list)
-    else:
-        logger.info('Estimating residual distribution parameters')
-        mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs)
-        pvals, Z = get_pvals(df_res.values, mu=mu, sigma=sigma, df0=df0,
-                             how=config.pval_sided, n_jobs=config.n_jobs)
-        # When not fitting every fold, use the same df0 for all folds
-        df0_list = [df0] * cv_gen.num_folds
-
-    # Compute one-sided p-values (used for some plots)
-    pvals_one_sided, _ = get_pvals(df_res.values,
-                                   mu=mu,
-                                   sigma=sigma,
-                                   df0=df0 if config.pval_dist == 't' else None,
-                                   how='left',
-                                   dis=config.pval_dist,
-                                   n_jobs=config.n_jobs)
-
-    pvals_adj = adjust_pvals(pvals, method=config.pval_adj)
-    result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
-                             pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
-                             pseudocount=config.pseudocount,
-                             outlier_threshold=config.outlier_threshold, base_fn=config.base_fn, pval_dist=config.pval_dist)
-    model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config.lr),
-                           n_epochs=np.array(config.n_epochs), test_loss=np.array(test_loss_list),
-                           train_losses=np.array(train_losses_list, dtype=object), 
-                           df0=np.array(df0_list), df_folds=df_folds)
-    
-    # Finish wandb run for CV mode
-    if wandb_module is not None:
-        try:
-            wandb_module.finish()
-        except Exception as e:
-            logger.warning(f'Failed to finish wandb: {e}')
-    
+                           train_losses=np.array(train_losses), df_folds=None)
     return result, model_info
 
 
@@ -922,7 +637,7 @@ def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: Protrid
     return df_out, df_presence, loss, mse_loss, bce_loss
 
 
-def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist):
+def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist, degrees_freedom=None):
     # Store as df
     df_pvals_adj = pd.DataFrame(pvals_adj)
     df_pvals_adj.columns = dataset.data.columns
@@ -959,4 +674,4 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pval
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence, df_pvals=df_pvals, df_Z=df_Z,
                   df_pvals_one_sided=df_pvals_one_sided, df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,
-                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold)
+                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold, degrees_freedom=degrees_freedom)

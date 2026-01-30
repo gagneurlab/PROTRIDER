@@ -20,6 +20,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     init_wPCA=True, n_layers=1, h_dim=None,
                     n_epochs=100, learning_rate=1e-6, batch_size=None,
                     pval_sided='two-sided', pval_dist='gaussian',
+                    common_degrees_freedom=True,
                     out_dir=None, device=torch.device('cpu'),
                     presence_absence=False, lambda_bce=1., n_jobs=-1
                     ):
@@ -63,9 +64,9 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                 X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
                 X_in[injected_dataset.mask] = np.nan
                 res = X_in - X_out
-                mu, sigma, df0 = fit_residuals(X_in - X_out, dis='gaussian', n_jobs=n_jobs)
+                mu, sigma, df_ = fit_residuals(X_in - X_out, dis='gaussian', n_jobs=n_jobs, use_common_df=common_degrees_freedom)
                 pvals, _ = get_pvals(res,
-                                     mu=mu, sigma=sigma, df0=df0,
+                                     mu=mu, sigma=sigma, df=df_,
                                      how=pval_sided,
                                      dis='gaussian', n_jobs=n_jobs
                                      )

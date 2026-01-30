@@ -8,18 +8,17 @@ __all__ = ["fit_residuals", "get_pvals", "adjust_pvals"]
 
 logger = logging.getLogger(__name__)
 
-def fit_residuals(res, dis='gaussian', n_jobs=-1):
+def fit_residuals(res, dis='gaussian', n_jobs=-1, use_common_df=True):
     if dis == 'gaussian':
         sigma = np.nanstd(res, ddof=1, axis=0)
         mu = np.nanmean(res, axis=0)
-        df0 = None
+        df = None
     else:
-        mu, sigma, df0 = _fit_t(res, n_jobs=n_jobs)
+        mu, sigma, df = _fit_t(res, n_jobs=n_jobs, use_common_df=use_common_df)
 
-    return mu, sigma, df0
+    return mu, sigma, df
 
-
-def get_pvals(res, mu, sigma, df0=None, how='two-sided', dis='gaussian', n_jobs=-1):
+def get_pvals(res, mu, sigma, df=None, how='two-sided', dis='gaussian', n_jobs=-1):
     hows = ('two-sided', 'left', 'right')
     if not how in hows:
         raise ValueError(f'Method should be in <{hows}>')
@@ -30,8 +29,8 @@ def get_pvals(res, mu, sigma, df0=None, how='two-sided', dis='gaussian', n_jobs=
     if dis == 'gaussian':
         pvals, z = _get_pv_norm(res, mu=mu, sigma=sigma, how=how, )
     else:
-        assert df0 is not None, "df0 should be provided for t-distribution"
-        pvals, z = get_pv_t(res, df0=df0, sigma=sigma, mu=mu, how=how, n_jobs=n_jobs)
+        assert df is not None, "df should be provided for t-distribution"
+        pvals, z = get_pv_t(res, df=df, sigma=sigma, mu=mu, how=how, n_jobs=n_jobs)
 
     return pvals, z
 
@@ -128,7 +127,7 @@ def _fit_t_base(x, max_df=None, df=None):
     return mu, sigma, df
 
 
-def _fit_t(res, max_df=100000, n_jobs=-1):
+def _fit_t(res, max_df=100000, n_jobs=-1, use_common_df=True):
     """
     Determine the degree of freedom for each protein in the data matrix. Take the median of the
     converged fits as the default degree of freedom.
@@ -149,59 +148,71 @@ def _fit_t(res, max_df=100000, n_jobs=-1):
     # and we fit again with using that common default df for all.
 
     def first_pass(j):
-        _, _, _df = _fit_t_base(res[:, j], max_df=max_df)
-        return j, _df
+        mu, sigma, _df = _fit_t_base(res[:, j], max_df=max_df)
+        return j, mu, sigma, _df
 
-    # Initialize variables
-    df = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
     # First pass: Fit the degree of freedom for each column of the data matrix
     ## if pv is too large, replace with np.nan --> it means it did not converge
     results = Parallel(n_jobs=n_jobs)(delayed(first_pass)(j) for j in tqdm.trange(res.shape[1]))
-    for j, _df in results:
-        df[j] = _df
+    if use_common_df:
+        # Initialize variables
+        df = np.full(res.shape[1], np.nan, dtype=np.float64)  # Array to store degrees of freedom
+        for j, mu, sigma, _df in results:
+            df[j] = _df
 
-    # Report the number of non-converged fits
-    logger.info(f"1st pass did not converge for {np.sum(np.isnan(df))} out of {len(df)} samples.")
+        # Report the number of non-converged fits
+        logger.info(f"1st pass did not converge for {np.sum(np.isnan(df))} out of {len(df)} samples.")
 
-    # Determine the default degree of freedom
-    if np.sum(~np.isnan(df)) >= 10:
-        df0 = np.nanmedian(df)  # Use median df if enough fits converged
-        # Ensure df0 is at least 3 for numerical stability and finite variance
-        df0 = max(df0, 3.0)
+        # Determine the default degree of freedom
+        if np.sum(~np.isnan(df)) >= 10:
+            df0 = np.nanmedian(df)  # Use median df if enough fits converged
+            # Ensure df0 is at least 3 for numerical stability and finite variance
+            df0 = max(df0, 3.0)
+        else:
+            df0 = 10  # Fallback default df
+        logger.info('Degrees of freedom after first pass %s', df0)
+
+        def second_pass(j):
+            _mu, _sigma, _ = _fit_t_base(res[:, j], df=df0, max_df=max_df)
+            return j, _mu, _sigma
+
+        # Initialize variables
+        mu = np.full(res.shape[1], np.nan, dtype=np.float64)
+        sigma = np.full(res.shape[1], np.nan, dtype=np.float64)
+        df = np.full(res.shape[1], df0, dtype=np.float64)
+        # Second pass, fit distribution now using df
+        results = Parallel(n_jobs=n_jobs)(delayed(second_pass)(j) for j in tqdm.trange(res.shape[1]))
+        for j, _mu, _sigma in results:
+            mu[j] = _mu
+            sigma[j] = _sigma
     else:
-        df0 = 10  # Fallback default df
-    logger.info('Degrees of freedom after first pass %s', df0)
+        mu = np.full(res.shape[1], np.nan, dtype=np.float64)
+        sigma = np.full(res.shape[1], np.nan, dtype=np.float64)
+        df = np.full(res.shape[1], np.nan, dtype=np.float64)
+        for j, _mu, _sigma, _df in results:
+            mu[j] = _mu
+            sigma[j] = _sigma
+            df[j] = max(_df, 3.0) if not np.isnan(_df) else 10.0
 
-    def second_pass(j):
-        _mu, _sigma, _ = _fit_t_base(res[:, j], df=df0, max_df=max_df)
-        return j, _mu, _sigma
-
-    # Initialize variables
-    mu = np.full(res.shape[1], np.nan, dtype=np.float64)
-    sigma = np.full(res.shape[1], np.nan, dtype=np.float64)
-    # Second pass, fit distribution now using df
-    results = Parallel(n_jobs=n_jobs)(delayed(second_pass)(j) for j in tqdm.trange(res.shape[1]))
-    for j, _mu, _sigma in results:
-        mu[j] = _mu
-        sigma[j] = _sigma
-
-    return mu, sigma, df0
+    return mu, sigma, df
 
 
-def get_pv_t(res, sigma, mu, df0, how='two-sided', n_jobs=-1):
+def get_pv_t(res, sigma, mu, df, how='two-sided', n_jobs=-1):
     # Validate the optional distribution parameters
     if not isinstance(sigma, (int, float)):
         assert len(sigma) == res.shape[
             1], "sigma should be a scalar or a vector of the same length as the number of proteins"
     if not isinstance(mu, (int, float)):
         assert len(mu) == res.shape[1], "mu should be a scalar or a vector of the same length as the number of proteins"
-    assert isinstance(df0, (int, float)), "df0 should be a scalar"
+    if not isinstance(df, (int, float)):
+        assert len(df) == res.shape[1], "df should be a scalar or a vector of the same length as the number of proteins"
 
     def process_column_with_df(j):
         x = res[:, j]
         _mu = mu[j] if (mu is not None) and (len(mu) > 1) else mu
         _sigma = sigma[j] if (sigma is not None) and (len(sigma) > 1) else sigma
-        pv, z = _get_pv_t_base(x, mu=_mu, sigma=_sigma, df=df0, how=how)
+        _df = df[j] if (df is not None) and (len(df) > 1) else df
+        pv, z = _get_pv_t_base(x, mu=_mu, sigma=_sigma, df=_df, how=how)
         return j, pv, z
 
     pv_t = np.full_like(res, np.nan, dtype=np.float64)  # Matrix to store p-values
