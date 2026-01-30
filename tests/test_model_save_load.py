@@ -81,7 +81,7 @@ def test_load_model(sample_dataset, temp_output_dir):
         latent_dim=5,
         n_layers=1,
         n_cov=n_cov,
-        prot_means=sample_dataset.prot_means_torch,
+        prot_means=None,
         presence_absence=False
     )
     model_original.double()
