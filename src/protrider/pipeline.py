@@ -514,7 +514,9 @@ def _run_protrider_standard(
                             presence_absence=config.presence_absence,
                             lambda_bce=config.lambda_presence_absence,
                             common_degrees_freedom=config.common_degrees_freedom,
-                            n_jobs=config.n_jobs
+                            n_jobs=config.n_jobs,
+                            patience=config.patience,
+                            min_delta=config.min_delta
                             )
 
         logger.info(
@@ -568,7 +570,7 @@ def _run_protrider_standard(
 
         logger.info('Fitting model')
         _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config.n_epochs, learning_rate=float(config.lr),
-                                      batch_size=config.batch_size, wandb=wandb)
+                                      batch_size=config.batch_size, wandb=wandb, patience=config.patience, min_delta=config.min_delta)
         df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(
             dataset, model, criterion)
         logger.info('Final loss: %s, mse loss: %s, bce loss: %s',

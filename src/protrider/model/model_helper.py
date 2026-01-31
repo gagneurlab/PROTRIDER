@@ -22,7 +22,8 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     pval_sided='two-sided', pval_dist='gaussian',
                     common_degrees_freedom=True,
                     out_dir=None, device=torch.device('cpu'),
-                    presence_absence=False, lambda_bce=1., n_jobs=-1
+                    presence_absence=False, lambda_bce=1., n_jobs=-1,
+                    patience=50, min_delta=1e-4
                     ):
     if method == "OHT" or method == "oht":
         logger.info('OHT method for finding latent dim')
@@ -49,7 +50,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                         loss, mse_loss, bce_loss)
 
             logger.info('\tFitting model')
-            loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size)
+            loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size, patience=patience, min_delta=min_delta)
             logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
                         loss, mse_loss, bce_loss)
             X_out = model(injected_dataset.X, injected_dataset.torch_mask,

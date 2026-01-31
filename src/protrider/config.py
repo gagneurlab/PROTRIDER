@@ -57,6 +57,8 @@ class ProtriderConfig:
     find_q_method: str = "OHT"  # "OHT", "gs", or an integer
     init_pca: bool = True
     h_dim: Optional[int] = None
+    patience: int = 50
+    min_delta: float = 1e-4
     
     # Presence absence modelling
     presence_absence: bool = False

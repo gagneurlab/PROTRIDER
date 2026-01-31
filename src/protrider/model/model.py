@@ -288,7 +288,7 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
     return np.array(train_losses), np.array(val_losses)
 
 
-def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None):
+def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None, patience=50, min_delta=1e-4):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
@@ -298,6 +298,10 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     train_losses = []
+    min_train_loss = float('inf')
+    early_stopping_counter = 0
+    best_model_wts = copy.deepcopy(model.state_dict())
+    early_stopping_epoch = 0
     for epoch in tqdm(range(n_epochs)):
         running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
@@ -309,7 +313,19 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
                 'train/mse_loss': running_mse_loss,
                 'train/bce_loss': running_bce_loss
             })
+        if min_train_loss - running_loss > min_delta:
+            min_train_loss = running_loss
+            best_model_wts = copy.deepcopy(model.state_dict())
+            early_stopping_counter = 0
+            early_stopping_epoch = epoch + 1
+        else:
+            early_stopping_counter += 1
+            if early_stopping_counter >= patience:
+                logger.info(f"\tEarly stopping at epoch {epoch + 1}")
+                break
 
+    logger.info('\tRestoring model weights from epoch %s', early_stopping_epoch)
+    model.load_state_dict(best_model_wts)
     return running_loss, running_mse_loss, running_bce_loss, train_losses
 
 
