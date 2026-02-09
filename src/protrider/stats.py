@@ -192,7 +192,16 @@ def _fit_t(res, max_df=100000, n_jobs=-1, use_common_df=True):
         for j, _mu, _sigma, _df in results:
             mu[j] = _mu
             sigma[j] = _sigma
-            df[j] = max(_df, 3.0) if not np.isnan(_df) else 10.0
+
+            # Determine the default degree of freedom
+            if np.sum(~np.isnan(df)) >= 10:
+                df0 = np.nanmedian(df)  # Use median df if enough fits converged
+                # Ensure df0 is at least 3 for numerical stability and finite variance
+                df0 = max(df0, 3.0)
+            else:
+                df0 = 10  # Fallback default df
+            
+            df[j] = max(_df, 3.0) if not np.isnan(_df) else df0
 
     return mu, sigma, df
 
