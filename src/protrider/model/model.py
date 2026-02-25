@@ -120,6 +120,8 @@ class ConditionalEnDecoder(nn.Module):
             self.model = last_layer
 
         elif n_layers > 1:
+            if h_dim is None:
+                h_dim = out_dim // 2 if is_encoder else in_dim // 2
             modules = []
             modules.append(nn.Linear(in_dim, h_dim, bias=False))
             modules.append(nn.ReLU())
