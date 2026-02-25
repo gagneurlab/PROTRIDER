@@ -124,9 +124,11 @@ class ConditionalEnDecoder(nn.Module):
                 h_dim = out_dim if is_encoder else in_dim
             modules = []
             modules.append(nn.Linear(in_dim, h_dim))
+            modules.append(nn.BatchNorm1d(h_dim))
             modules.append(nn.GELU())
             for _ in range(1, n_layers - 1):
-                modules.append(nn.Linear(h_dim, h_dim))
+                modules.append(nn.Linear(h_dim, h_dim, bias=False))
+                modules.append(nn.BatchNorm1d(h_dim))
                 modules.append(nn.GELU())
             # if the model is a decoder, then we want to have trainable bias
             last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder or prot_means is None)
