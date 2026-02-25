@@ -46,7 +46,7 @@ class ProtriderConfig:
     inj_freq: float = 1e-3
     inj_mean: float = 3
     inj_sd: float = 1.6
-    gs_epochs: int = 100
+    gs_epochs: int = None
     
     # Model params
     autoencoder_training: bool = True
