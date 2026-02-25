@@ -30,13 +30,17 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
         dataset.perform_svd()
         q = dataset.find_enc_dim_optht()
     elif method == "gs":
+        # init from PCA
+        dataset.perform_svd()
+        q = dataset.find_enc_dim_optht()
+
         logger.info('Grid search method for finding latent dim')
         logger.info('Injecting outliers')
         inj_freq = float(inj_freq)
         learning_rate = float(learning_rate)
         injected_dataset, outlier_mask = _inject_outliers(dataset, inj_freq, inj_mean, inj_sd, device=device)
 
-        possible_qs = _get_gs_params(dataset.X.shape)
+        possible_qs = _get_gs_params(dataset.X.shape, a=q)
         logger.info("Starting grid search for optimal encoding dimension")
         gridSearch_results = []
         for latent_dim in possible_qs:
