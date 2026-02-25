@@ -124,10 +124,10 @@ class ConditionalEnDecoder(nn.Module):
                 h_dim = out_dim if is_encoder else in_dim
             modules = []
             modules.append(nn.Linear(in_dim, h_dim))
-            modules.append(nn.ReLU())
+            modules.append(nn.GELU())
             for _ in range(1, n_layers - 1):
                 modules.append(nn.Linear(h_dim, h_dim))
-                modules.append(nn.ReLU())
+                modules.append(nn.GELU())
             # if the model is a decoder, then we want to have trainable bias
             last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder or prot_means is None)
             modules.append(last_layer)
@@ -253,6 +253,7 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
         batch_size = train_subset.X.shape[0]
     data_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=patience // 2)
 
     min_val_loss = np.inf
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -267,6 +268,8 @@ def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model,
             train_losses.append(train_loss)
             x_hat_val = model(val_subset.X, val_subset.torch_mask, cond=val_subset.covariates)
             val_loss, val_mse_loss, val_bce_loss = criterion(x_hat_val, val_subset.X, val_subset.torch_mask)
+            
+            scheduler.step(val_loss)
 
             val_losses.append(val_loss.detach().cpu().numpy())
             logger.debug('[%d] train loss: %.6f' % (epoch + 1, train_loss))
@@ -307,6 +310,7 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
                                               shuffle=True)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=patience // 4)
     train_losses = []
     min_train_loss = float('inf')
     early_stopping_counter = 0
@@ -314,6 +318,7 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
     early_stopping_epoch = 0
     for epoch in tqdm(range(n_epochs)):
         running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
+        scheduler.step(running_loss)
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
                                                                           running_mse_loss, running_bce_loss))
         train_losses.append(running_loss)
