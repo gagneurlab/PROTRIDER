@@ -121,12 +121,12 @@ class ConditionalEnDecoder(nn.Module):
 
         elif n_layers > 1:
             if h_dim is None:
-                h_dim = out_dim // 2 if is_encoder else in_dim // 2
+                h_dim = out_dim if is_encoder else in_dim
             modules = []
-            modules.append(nn.Linear(in_dim, h_dim, bias=False))
+            modules.append(nn.Linear(in_dim, h_dim))
             modules.append(nn.ReLU())
             for _ in range(1, n_layers - 1):
-                modules.append(nn.Linear(h_dim, h_dim, bias=False))
+                modules.append(nn.Linear(h_dim, h_dim))
                 modules.append(nn.ReLU())
             # if the model is a decoder, then we want to have trainable bias
             last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder or prot_means is None)
@@ -177,26 +177,34 @@ class ProtriderAutoencoder(nn.Module):
         return out
 
     def initialize_wPCA(self, Vt_q, prot_means, n_cov=0):
-        if self.n_layers > 1:
-            logger.warning('Initialization only possible for n_layers=1. Going back to random init...')
+        if self.n_layers == 1:
+            enc_layer = self.encoder.model
+            dec_layer = self.decoder.model
+        else:
+            enc_layer = self.encoder.model[0]
+            dec_layer = self.decoder.model[-1]
+
+        if enc_layer.weight.data.shape[0] != Vt_q.shape[0] or dec_layer.weight.data.shape[1] != Vt_q.shape[0] + n_cov:
+            logger.warning(f'PCA initialization skipped: layer dimensions do not match latent dim. '
+                           f'This happens when h_dim is explicitly set.')
             return
 
-        device = self.encoder.model.weight.device
+        device = enc_layer.weight.device
         Vt_q = torch.from_numpy(Vt_q).to(device) # (q, n_prots)
 
         ## ENCODER weights: (q, n_prots + n_cov), bias: (q)
-        cov_enc_init = self.encoder.model.weight.data[:, 0:n_cov]
-        self.encoder.model.weight.data.copy_(
+        cov_enc_init = enc_layer.weight.data[:, 0:n_cov]
+        enc_layer.weight.data.copy_(
             torch.cat([Vt_q.to(device),
                        cov_enc_init.to(device)], axis=1)
         )
 
-        self.encoder.model.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
+        enc_layer.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
 
         ## DECODER weights: (n_prots, q + n_cov), bias: (n_prot)
-        self.decoder.model.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
-        cov_dec_init = self.decoder.model.weight.data[:, 0:n_cov]
-        self.decoder.model.weight.data.copy_(
+        dec_layer.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
+        cov_dec_init = dec_layer.weight.data[:, 0:n_cov]
+        dec_layer.weight.data.copy_(
             torch.cat([Vt_q.T.to(device),
                        cov_dec_init.to(device)], axis=1)
         )      
