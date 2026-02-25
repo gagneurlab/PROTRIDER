@@ -109,8 +109,8 @@ class ProtriderConfig:
         if self.outlier_threshold < 0 or self.outlier_threshold > 1:
             raise ValueError("outlier_threshold must be between 0 and 1")
         
-        if self.find_q_method not in ["OHT", "gs"] and not self.find_q_method.isdigit():
-            raise ValueError("find_q_method must be 'OHT', 'gs', or an integer string")
+        if self.find_q_method not in ["OHT", "gs", "bs"] and not self.find_q_method.isdigit():
+            raise ValueError("find_q_method must be 'OHT', 'gs', 'bs' or an integer string")
         
         if self.presence_absence and self.n_layers != 1:
             import warnings

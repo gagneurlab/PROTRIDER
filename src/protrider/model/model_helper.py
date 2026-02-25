@@ -25,10 +25,53 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     presence_absence=False, lambda_bce=1., n_jobs=-1,
                     patience=50, min_delta=1e-4
                     ):
+    dataset.perform_svd()
+    q = dataset.find_enc_dim_optht()
+
+    enc_search_results =  pd.DataFrame(columns=["encod_dim", "aucpr"])
+    def train_and_eval_q(latent_dim):
+        # if q already evaluated, return cached value
+        existing = enc_search_results.loc[enc_search_results["encod_dim"] == latent_dim, "aucpr"]
+        if not existing.empty:
+            return existing.iloc[0]
+        
+        logger.info(f"Testing q = {latent_dim}")
+        model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device,
+                            presence_absence=presence_absence)
+        criterion = MSEBCELoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
+        X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.covariates)
+        loss, mse_loss, bce_loss = criterion(X_out, injected_dataset.X, injected_dataset.torch_mask, detached=True)
+        logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s',
+                    loss, mse_loss, bce_loss)
+
+        logger.info('\tFitting model')
+        loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size, patience=patience, min_delta=min_delta)
+        logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
+                    loss, mse_loss, bce_loss)
+        X_out = model(injected_dataset.X, injected_dataset.torch_mask,
+                        cond=injected_dataset.covariates).detach().cpu().numpy()
+        if presence_absence:
+            presence_out = X_out[1]
+            X_out = X_out[0]
+
+        if ~np.isfinite(loss):
+            auc_prec_rec = np.nan
+        else:
+            X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
+            X_in[injected_dataset.mask] = np.nan
+            res = X_in - X_out
+            mu, sigma, df_ = fit_residuals(X_in - X_out, dis='gaussian', n_jobs=n_jobs, use_common_df=common_degrees_freedom)
+            pvals, _ = get_pvals(res,
+                                    mu=mu, sigma=sigma, df=df_,
+                                    how=pval_sided,
+                                    dis='gaussian', n_jobs=n_jobs
+                                    )
+            auprc = _get_prec_recall(pvals, outlier_mask)
+            logger.info(f"\t==> q = {latent_dim}: AUPRC = {auprc}")
+        return auprc
+
     if method == "OHT" or method == "oht":
         logger.info('OHT method for finding latent dim')
-        dataset.perform_svd()
-        q = dataset.find_enc_dim_optht()
     elif method == "gs":
         # init from PCA
         dataset.perform_svd()
@@ -40,53 +83,76 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
         learning_rate = float(learning_rate)
         injected_dataset, outlier_mask = _inject_outliers(dataset, inj_freq, inj_mean, inj_sd, device=device)
 
-        possible_qs = _get_gs_params(dataset.X.shape, a=q)
+        possible_qs = _get_gs_params(dataset.X.shape, oht_q=q)
         logger.info("Starting grid search for optimal encoding dimension")
-        gridSearch_results = []
         for latent_dim in possible_qs:
-            logger.info(f"Testing q = {latent_dim}")
-            model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device,
-                               presence_absence=presence_absence)
-            criterion = MSEBCELoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
-            X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.covariates)
-            loss, mse_loss, bce_loss = criterion(X_out, injected_dataset.X, injected_dataset.torch_mask, detached=True)
-            logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s',
-                        loss, mse_loss, bce_loss)
-
-            logger.info('\tFitting model')
-            loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size, patience=patience, min_delta=min_delta)
-            logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
-                        loss, mse_loss, bce_loss)
-            X_out = model(injected_dataset.X, injected_dataset.torch_mask,
-                          cond=injected_dataset.covariates).detach().cpu().numpy()
-            if presence_absence:
-                presence_out = X_out[1]
-                X_out = X_out[0]
-
-            if ~np.isfinite(loss):
-                auc_prec_rec = np.nan
-            else:
-                X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
-                X_in[injected_dataset.mask] = np.nan
-                res = X_in - X_out
-                mu, sigma, df_ = fit_residuals(X_in - X_out, dis='gaussian', n_jobs=n_jobs, use_common_df=common_degrees_freedom)
-                pvals, _ = get_pvals(res,
-                                     mu=mu, sigma=sigma, df=df_,
-                                     how=pval_sided,
-                                     dis='gaussian', n_jobs=n_jobs
-                                     )
-                auprc = _get_prec_recall(pvals, outlier_mask)
-                logger.info(f"\t==> q = {latent_dim}: AUPRC = {auprc}")
-                gridSearch_results.append([latent_dim, auprc])
-
-        df_gs = pd.DataFrame(gridSearch_results, columns=["encod_dim", "aucpr"])
-        q = int(df_gs.loc[df_gs['aucpr'].idxmax()]['encod_dim'])
+            auprc = train_and_eval_q(latent_dim)
+            enc_search_results.loc[len(enc_search_results)] = {"encod_dim": latent_dim, "aucpr": auprc}
+        
+        q = int(enc_search_results.loc[enc_search_results['aucpr'].idxmax()]['encod_dim'])
         logger.info(f'Finished grid search. Optimal encoding dimension = {q}.')
 
         if out_dir is not None:
             out_p = f'{out_dir}/grid_search.csv'
-            df_gs.to_csv(out_p, header=True, index=True)
+            enc_search_results.to_csv(out_p, header=True, index=True)
             logger.info(f"\t Saved grid_search to {out_p}")
+    elif method == "bs":
+        logger.info('Binary search method for finding latent dim')
+        logger.info('Injecting outliers')
+        inj_freq = float(inj_freq)
+        learning_rate = float(learning_rate)
+        injected_dataset, outlier_mask = _inject_outliers(dataset, inj_freq, inj_mean, inj_sd, device=device)
+        logger.info("Starting binary search for optimal encoding dimension")
+
+        factor = 2
+        max_iters = 6
+        tol=1e-6
+        
+        k_max = injected_dataset.X.shape[1]
+
+        L, M, R = max(1, q // factor), q, int(q * 3)
+        fL, fM, fR = train_and_eval_q(L), train_and_eval_q(M), train_and_eval_q(R)
+      
+        enc_search_results.loc[len(enc_search_results)] = {"encod_dim": L, "aucpr": fL}
+        enc_search_results.loc[len(enc_search_results)] = {"encod_dim": M, "aucpr": fM}
+        enc_search_results.loc[len(enc_search_results)] = {"encod_dim": R, "aucpr": fR}
+        
+        best_q, best_f = M, fM
+
+        for it in range(max_iters):
+            # update best
+            for q, fv in [(L,fL), (M,fM), (R,fR)]:
+                if fv > best_f:
+                    best_q, best_f = q, fv
+    
+            # Shrink the interval if mid is best
+            if fM >= fL and fM >= fR:
+                if abs(R - L) < 2:
+                    break
+                L = (L + M) // factor
+                fL = train_and_eval_q(L)
+                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": L, "aucpr": fL}
+                R = (M + R) // factor
+                fR = train_and_eval_q(R)
+                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": R, "aucpr": fR}
+    
+            # otherwise shift toward the better side
+            if fR > fM:
+                L, fL = M, fM
+                M = M + (R - M) // factor 
+                fM = train_and_eval_q(M)
+                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": M, "aucpr": fM}
+            else:
+                R, fR = M, fM
+                M = L + (M - L) // factor
+                fM = train_and_eval_q(M)
+                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": M, "aucpr": fM}
+
+        q = best_q
+        if out_dir is not None:
+            out_p = f'{out_dir}/grid_search.csv'
+            enc_search_results.to_csv(out_p, header=True, index=True)
+            logger.info(f"\t Saved binary search to {out_p}")
     else:
         print("Setting q is a fixed user-provided value")
         q = int(method)
@@ -109,9 +175,11 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, devic
     return model
 
 
-def _get_gs_params(data_shape, MP=2, a=3, max_steps=30):
+def _get_gs_params(data_shape, oht_q, MP=2, a=3, max_steps=30):
+    print(data_shape)
     b = round(min(data_shape) / MP)
     n_steps = min(max_steps, b)  # do at most 25 steps or N/3
+    a = max(a, oht_q//2)
     par_q = np.unique(np.round(np.exp(np.linspace(start=np.log(a),
                                                   stop=np.log(b),
                                                   num=n_steps))))
