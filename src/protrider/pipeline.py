@@ -400,7 +400,7 @@ class Result:
         )
 
 
-def run(config: ProtriderConfig) -> Tuple[Result, ModelInf, FitParameters]:
+def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters]:
     """
     Run PROTRIDER protein outlier detection.
     
