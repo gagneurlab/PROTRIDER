@@ -3,22 +3,46 @@ import scipy
 import tqdm
 from joblib import Parallel, delayed
 import logging
+from dataclasses import dataclass
+import pandas as pd
 
-__all__ = ["fit_residuals", "get_pvals", "adjust_pvals"]
+__all__ = ["fit_residuals", "get_pvals", "adjust_pvals", "FitParameters"]
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class FitParameters:
+    """Stores gene-level parameters for PROTRIDER results."""
+    genes: np.ndarray[str]
+    sigmas: np.ndarray[float]
+    means: np.ndarray[float]
+    degrees_freedoms: np.ndarray[float] = None
+
+    def to_dict(self):
+        return {
+            'gene': self.genes,
+            'sigma': self.sigmas,
+            'mean': self.means,
+            'degrees_freedom': self.degrees_freedoms
+        }
+
+    def to_csv(self, out_dir):
+        df = pd.DataFrame(self.to_dict())
+        df.to_csv(out_dir / 'fit_parameters.csv', index=False)
+
 def fit_residuals(res, dis='gaussian', n_jobs=-1, use_common_df=True):
+    matrix = np.asarray(res)
+    genes = np.array(res.columns)
     if dis == 'gaussian':
-        sigma = np.nanstd(res, ddof=1, axis=0)
-        mu = np.nanmean(res, axis=0)
+        sigma = np.nanstd(matrix, ddof=1, axis=0)
+        mu = np.nanmean(matrix, axis=0)
         df = None
     else:
-        mu, sigma, df = _fit_t(res, n_jobs=n_jobs, use_common_df=use_common_df)
+        mu, sigma, df = _fit_t(matrix, n_jobs=n_jobs, use_common_df=use_common_df)
 
-    return mu, sigma, df
+    return FitParameters(genes=genes, sigmas=sigma, means=mu, degrees_freedoms=df)
 
-def get_pvals(res, mu, sigma, df=None, how='two-sided', dis='gaussian', n_jobs=-1):
+def get_pvals(res, fit_params: FitParameters, how='two-sided', dis='gaussian', n_jobs=-1):
     hows = ('two-sided', 'left', 'right')
     if not how in hows:
         raise ValueError(f'Method should be in <{hows}>')
@@ -27,10 +51,10 @@ def get_pvals(res, mu, sigma, df=None, how='two-sided', dis='gaussian', n_jobs=-
         raise ValueError(f'Distribution should be in <{dists}>')
 
     if dis == 'gaussian':
-        pvals, z = _get_pv_norm(res, mu=mu, sigma=sigma, how=how, )
+        pvals, z = _get_pv_norm(res, mu=fit_params.means, sigma=fit_params.sigmas, how=how, )
     else:
-        assert df is not None, "df should be provided for t-distribution"
-        pvals, z = get_pv_t(res, df=df, sigma=sigma, mu=mu, how=how, n_jobs=n_jobs)
+        assert fit_params.degrees_freedoms is not None, "df should be provided for t-distribution"
+        pvals, z = get_pv_t(res, df=fit_params.degrees_freedoms, sigma=fit_params.sigmas, mu=fit_params.means, how=how, n_jobs=n_jobs)
 
     return pvals, z
 

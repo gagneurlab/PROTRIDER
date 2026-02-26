@@ -60,12 +60,11 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
             X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
             X_in[injected_dataset.mask] = np.nan
             res = X_in - X_out
-            mu, sigma, df_ = fit_residuals(X_in - X_out, dis='gaussian', n_jobs=n_jobs, use_common_df=common_degrees_freedom)
-            pvals, _ = get_pvals(res,
-                                    mu=mu, sigma=sigma, df=df_,
-                                    how=pval_sided,
-                                    dis='gaussian', n_jobs=n_jobs
-                                    )
+            fit_params = fit_residuals(pd.DataFrame(res), dis='gaussian', n_jobs=n_jobs, use_common_df=common_degrees_freedom)
+            pvals, _ = get_pvals(res, fit_params=fit_params,
+                                 how=pval_sided,
+                                 dis='gaussian', n_jobs=n_jobs
+                                 )
             auprc = _get_prec_recall(pvals, outlier_mask)
             logger.info(f"\t==> q = {latent_dim}: AUPRC = {auprc}")
         return auprc

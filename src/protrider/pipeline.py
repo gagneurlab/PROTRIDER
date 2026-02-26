@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
-from .stats import get_pvals, fit_residuals, adjust_pvals
+from .stats import get_pvals, fit_residuals, adjust_pvals, FitParameters
 from .plots import plot_cv_loss
 from .config import ProtriderConfig
 
@@ -108,7 +108,6 @@ class Result:
     n_out_median: int
     n_out_max: int
     n_out_total: int
-    degrees_freedom: np.ndarray = None  # Degrees of freedom for t-distribution, if applicable
     pval_dist: str = 'gaussian'  # Distribution used for p-value computation
     outlier_threshold: float = 0.1  # Threshold for determining outliers
     
@@ -128,12 +127,6 @@ class Result:
             DataFrame if format="long", None if format="wide"
             
         """
-        # save degrees of freedom if applicable
-        if self.degrees_freedom is not None:
-            out_p = f'{out_dir}/degrees_of_freedom.csv'
-            df_df = pd.DataFrame(self.degrees_freedom, index=self.dataset.data.columns, columns=['degrees_of_freedom'])
-            df_df.to_csv(out_p, header=True, index=True)
-            logger.info(f'Saved degrees of freedom to {out_p}')
 
         if format == "wide":
             logger.info('=== Saving results in wide format ===')
@@ -407,7 +400,7 @@ class Result:
         )
 
 
-def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
+def run(config: ProtriderConfig) -> Tuple[Result, ModelInf, FitParameters]:
     """
     Run PROTRIDER protein outlier detection.
     
@@ -454,7 +447,7 @@ def _run_protrider_standard(
     config: ProtriderConfig,
     input_intensities: Union[str, pd.DataFrame],
     sample_annotation: Union[str, pd.DataFrame, None]
-) -> Tuple[Result, ModelInfo]:
+) -> Tuple[Result, ModelInfo, FitParameters]:
     """
     Perform protein outlier detection in a single run (internal function).
     
@@ -593,17 +586,13 @@ def _run_protrider_standard(
     logger.info('Computing statistics')
     df_res = dataset.data - df_out  # log data - pred data
 
-    mu, sigma, degrees_freedom = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs, use_common_df=config.common_degrees_freedom)
+    fit_params = fit_residuals(df_res, dis=config.pval_dist, n_jobs=config.n_jobs, use_common_df=config.common_degrees_freedom)
     pvals, Z = get_pvals(df_res.values,
-                         mu=mu,
-                         sigma=sigma,
-                         df=degrees_freedom,
+                         fit_params=fit_params,
                          how=config.pval_sided,
                          dis=config.pval_dist, n_jobs=config.n_jobs)
     pvals_one_sided, _ = get_pvals(df_res.values,
-                                   mu=mu,
-                                   sigma=sigma,
-                                   df=degrees_freedom,
+                                   fit_params=fit_params,
                                    how='left',
                                    dis=config.pval_dist, n_jobs=config.n_jobs)
 
@@ -611,11 +600,11 @@ def _run_protrider_standard(
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
                              pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
                              pseudocount=config.pseudocount, outlier_threshold=config.outlier_threshold,
-                             base_fn=config.base_fn, pval_dist=config.pval_dist, degrees_freedom=degrees_freedom)
+                             base_fn=config.base_fn, pval_dist=config.pval_dist)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
                            train_losses=np.array(train_losses), df_folds=None)
-    return result, model_info
+    return result, model_info, fit_params
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss):
@@ -639,7 +628,7 @@ def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: Protrid
     return df_out, df_presence, loss, mse_loss, bce_loss
 
 
-def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist, degrees_freedom=None):
+def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist):
     # Store as df
     df_pvals_adj = pd.DataFrame(pvals_adj)
     df_pvals_adj.columns = dataset.data.columns
@@ -676,4 +665,4 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pval
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence, df_pvals=df_pvals, df_Z=df_Z,
                   df_pvals_one_sided=df_pvals_one_sided, df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,
-                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold, degrees_freedom=degrees_freedom)
+                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold)
