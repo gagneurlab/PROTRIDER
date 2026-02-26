@@ -4,16 +4,31 @@ import pandas as pd
 from sklearn.metrics import precision_recall_curve, auc
 import torch
 import copy
+from dataclasses import dataclass
 
 from protrider.stats import get_pvals, fit_residuals
 from .model import ProtriderAutoencoder, train, MSEBCELoss  # masked
 from protrider.datasets import ProtriderSubset, ProtriderDataset
 import logging
 
-__all__ = ['init_model', 'find_latent_dim']
+__all__ = ['init_model', 'find_latent_dim', 'GridSearchResult']
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class GridSearchResult:
+    enc_dim: np.ndarray[np.int32]
+    auprc: np.ndarray[np.float32]
+
+    def to_dict(self):
+        return {
+            'enc_dim': self.enc_dim,
+            'auprc': self.auprc
+        }
+
+    def to_csv(self, out_dir):
+        df = pd.DataFrame(self.to_dict())
+        df.to_csv(out_dir / 'grid_search_results.csv', index=False)
 
 def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     inj_freq=1e-3, inj_mean=3, inj_sd=1.6,
@@ -24,16 +39,16 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     out_dir=None, device=torch.device('cpu'),
                     presence_absence=False, lambda_bce=1., n_jobs=-1,
                     patience=50, min_delta=1e-4
-                    ):
+                    ) -> tuple[int, GridSearchResult]:
     dataset.perform_svd()
     q = dataset.find_enc_dim_optht()
 
-    enc_search_results =  pd.DataFrame(columns=["encod_dim", "aucpr"])
+    enc2auprc =  dict()
     def train_and_eval_q(latent_dim):
         # if q already evaluated, return cached value
-        existing = enc_search_results.loc[enc_search_results["encod_dim"] == latent_dim, "aucpr"]
-        if not existing.empty:
-            return existing.iloc[0]
+        existing = enc2auprc.get(latent_dim, None)
+        if existing is not None:
+            return existing
         
         logger.info(f"Testing q = {latent_dim}")
         model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device,
@@ -86,15 +101,10 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
         logger.info("Starting grid search for optimal encoding dimension")
         for latent_dim in possible_qs:
             auprc = train_and_eval_q(latent_dim)
-            enc_search_results.loc[len(enc_search_results)] = {"encod_dim": latent_dim, "aucpr": auprc}
+            enc2auprc[latent_dim] = auprc
         
-        q = int(enc_search_results.loc[enc_search_results['aucpr'].idxmax()]['encod_dim'])
+        q = max(enc2auprc, key=enc2auprc.get)
         logger.info(f'Finished grid search. Optimal encoding dimension = {q}.')
-
-        if out_dir is not None:
-            out_p = f'{out_dir}/grid_search.csv'
-            enc_search_results.to_csv(out_p, header=True, index=True)
-            logger.info(f"\t Saved grid_search to {out_p}")
     elif method == "bs":
         logger.info('Binary search method for finding latent dim')
         logger.info('Injecting outliers')
@@ -111,11 +121,11 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
 
         L, M, R = max(1, q // factor), q, int(q * 3)
         fL, fM, fR = train_and_eval_q(L), train_and_eval_q(M), train_and_eval_q(R)
-      
-        enc_search_results.loc[len(enc_search_results)] = {"encod_dim": L, "aucpr": fL}
-        enc_search_results.loc[len(enc_search_results)] = {"encod_dim": M, "aucpr": fM}
-        enc_search_results.loc[len(enc_search_results)] = {"encod_dim": R, "aucpr": fR}
         
+        enc2auprc[L] = fL
+        enc2auprc[M] = fM
+        enc2auprc[R] = fR
+      
         best_q, best_f = M, fM
 
         for it in range(max_iters):
@@ -130,32 +140,31 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     break
                 L = (L + M) // factor
                 fL = train_and_eval_q(L)
-                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": L, "aucpr": fL}
+                enc2auprc[L] = fL
                 R = (M + R) // factor
                 fR = train_and_eval_q(R)
-                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": R, "aucpr": fR}
+                enc2auprc[R] = fR
     
             # otherwise shift toward the better side
             if fR > fM:
                 L, fL = M, fM
                 M = M + (R - M) // factor 
                 fM = train_and_eval_q(M)
-                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": M, "aucpr": fM}
+                enc2auprc[M] = fM
             else:
                 R, fR = M, fM
                 M = L + (M - L) // factor
                 fM = train_and_eval_q(M)
-                enc_search_results.loc[len(enc_search_results)] = {"encod_dim": M, "aucpr": fM}
+                enc2auprc[M] = fM
 
         q = best_q
-        if out_dir is not None:
-            out_p = f'{out_dir}/grid_search.csv'
-            enc_search_results.to_csv(out_p, header=True, index=True)
-            logger.info(f"\t Saved binary search to {out_p}")
     else:
         print("Setting q is a fixed user-provided value")
         q = int(method)
-    return q
+
+    gs_result = GridSearchResult(enc_dim=np.array(list(enc2auprc.keys()), dtype=np.int32),
+                                 auprc=np.array(list(enc2auprc.values()), dtype=np.float32))
+    return q, gs_result
 
 
 def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, device=torch.device('cpu'),

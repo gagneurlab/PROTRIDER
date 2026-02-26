@@ -6,7 +6,7 @@ import torch
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo
+from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo, GridSearchResult
 from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
 from .stats import get_pvals, fit_residuals, adjust_pvals, FitParameters
 from .plots import plot_cv_loss
@@ -400,7 +400,7 @@ class Result:
         )
 
 
-def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters]:
+def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, GridSearchResult]:
     """
     Run PROTRIDER protein outlier detection.
     
@@ -415,7 +415,7 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters]:
                   * Format: rows = samples
 
     Returns:
-        Tuple of (Result, ModelInfo)
+        Tuple of (Result, ModelInfo, FitParameters, GridSearchResult)
         - Result: Contains all output dataframes (residuals, p-values, z-scores, etc.)
         - ModelInfo: Contains model metadata (q, learning_rate, losses, etc.)
                     For CV runs, includes df_folds with fold assignments
@@ -447,7 +447,7 @@ def _run_protrider_standard(
     config: ProtriderConfig,
     input_intensities: Union[str, pd.DataFrame],
     sample_annotation: Union[str, pd.DataFrame, None]
-) -> Tuple[Result, ModelInfo, FitParameters]:
+) -> Tuple[Result, ModelInfo, FitParameters, GridSearchResult]:
     """
     Perform protein outlier detection in a single run (internal function).
     
@@ -487,9 +487,10 @@ def _run_protrider_standard(
         model, q = load_model(dataset, str(checkpoint_path), config)
     
     # 3. If model not loaded, find latent dim and initialize new model
+    gs_result = None  # Initialize empty grid search result
     if model is None:
         logger.info('Finding latent dimension')
-        q = find_latent_dim(dataset, method=config.find_q_method,
+        q, gs_result = find_latent_dim(dataset, method=config.find_q_method,
                             # Params for grid search method
                             inj_freq=config.inj_freq,
                             inj_mean=config.inj_mean,
@@ -604,7 +605,7 @@ def _run_protrider_standard(
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
                            train_losses=np.array(train_losses), df_folds=None)
-    return result, model_info, fit_params
+    return result, model_info, fit_params, gs_result
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss):
