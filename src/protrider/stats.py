@@ -5,6 +5,7 @@ from joblib import Parallel, delayed
 import logging
 from dataclasses import dataclass
 import pandas as pd
+from pathlib import Path
 
 __all__ = ["fit_residuals", "get_pvals", "adjust_pvals", "FitParameters"]
 
@@ -26,9 +27,9 @@ class FitParameters:
             'degrees_freedom': self.degrees_freedoms
         }
 
-    def to_csv(self, out_dir):
+    def to_csv(self, out_dir: str):
         df = pd.DataFrame(self.to_dict())
-        df.to_csv(out_dir / 'fit_parameters.csv', index=False)
+        df.to_csv(Path(out_dir) / 'fit_parameters.csv', index=False)
 
 def fit_residuals(res, dis='gaussian', n_jobs=-1, use_common_df=True):
     matrix = np.asarray(res)

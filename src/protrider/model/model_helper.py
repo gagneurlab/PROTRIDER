@@ -5,6 +5,7 @@ from sklearn.metrics import precision_recall_curve, auc
 import torch
 import copy
 from dataclasses import dataclass
+from pathlib import Path
 
 from protrider.stats import get_pvals, fit_residuals
 from .model import ProtriderAutoencoder, train, MSEBCELoss  # masked
@@ -26,9 +27,9 @@ class GridSearchResult:
             'auprc': self.auprc
         }
 
-    def to_csv(self, out_dir):
+    def to_csv(self, out_dir: str):
         df = pd.DataFrame(self.to_dict())
-        df.to_csv(out_dir / 'grid_search_results.csv', index=False)
+        df.to_csv(Path(out_dir) / 'grid_search_results.csv', index=False)
 
 def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     inj_freq=1e-3, inj_mean=3, inj_sd=1.6,
