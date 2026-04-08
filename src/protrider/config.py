@@ -46,7 +46,7 @@ class ProtriderConfig:
     inj_freq: float = 1e-3
     inj_mean: float = 3
     inj_sd: float = 1.6
-    gs_epochs: int = 100
+    gs_epochs: int = None
     
     # Model params
     autoencoder_training: bool = True
@@ -57,23 +57,24 @@ class ProtriderConfig:
     find_q_method: str = "OHT"  # "OHT", "gs", or an integer
     init_pca: bool = True
     h_dim: Optional[int] = None
+    patience: int = 50
+    min_delta: float = 1e-4
     
     # Presence absence modelling
     presence_absence: bool = False
     lambda_presence_absence: float = 0.5
-    
-    # Cross-validation parameters
-    cross_val: bool = False
-    n_folds: Optional[int] = None
-    early_stopping_patience: int = 50
-    early_stopping_min_delta: float = 0.0001
-    fit_every_fold: bool = False
+
+    # Wandb logging
+    use_wandb: bool = False
+    wandb_project: Optional[str] = "protrider"
+    wandb_name: Optional[str] = None
     
     # Statistical params
     pval_dist: Literal["gaussian", "t"] = "t"
     pval_adj: Literal["by", "bh"] = "by"
     pval_sided: Literal["two-sided", "left", "right"] = "two-sided"
     pseudocount: float = 0.01
+    common_degrees_freedom: bool = True  # whether to use common degrees of freedom; more stable for small datasets
     
     # Reporting params
     outlier_threshold: float = 0.1
@@ -83,6 +84,12 @@ class ProtriderConfig:
     verbose: bool = False
     device: Literal["gpu", "cpu"] = "gpu"
     n_jobs: int = -1  # Number of parallel jobs, -1 means using all processors
+    
+    # Model checkpoint path for saving/loading trained models
+    # If None: train from scratch and save to out_dir/model.pt
+    # If path exists: load model from this path and skip training
+    # If path doesn't exist: train and save to this path
+    checkpoint_path: Optional[str] = None
     
     def __post_init__(self):
         """Validate configuration after initialization and set computed fields."""
@@ -102,8 +109,8 @@ class ProtriderConfig:
         if self.outlier_threshold < 0 or self.outlier_threshold > 1:
             raise ValueError("outlier_threshold must be between 0 and 1")
         
-        if self.find_q_method not in ["OHT", "gs"] and not self.find_q_method.isdigit():
-            raise ValueError("find_q_method must be 'OHT', 'gs', or an integer string")
+        if self.find_q_method not in ["OHT", "gs", "bs"] and not self.find_q_method.isdigit():
+            raise ValueError("find_q_method must be 'OHT', 'gs', 'bs' or an integer string")
         
         if self.presence_absence and self.n_layers != 1:
             import warnings

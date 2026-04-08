@@ -32,7 +32,7 @@ class TestPipelineOutputConsistency:
                 verbose=False
             )
             
-            result, _ = run(config)
+            result, *_ = run(config)
             
             # Check p-values are in [0, 1] (ignoring NaN values which are expected for missing data)
             valid_pvals = result.df_pvals.dropna()
@@ -56,7 +56,7 @@ class TestPipelineOutputConsistency:
                 verbose=False
             )
             
-            result, _ = run(config)
+            result, *_ = run(config)
             
             # fc should be 2^log2fc
             expected_fc = 2 ** result.log2fc
@@ -77,7 +77,7 @@ class TestPipelineOutputConsistency:
                 verbose=False
             )
             
-            result, _ = run(config)
+            result, *_ = run(config)
             
             # Check that sample names match (after filtering for NAs)
             assert len(result.df_pvals.index) <= len(protein_df.columns)
@@ -103,7 +103,7 @@ class TestPipelineEdgeCases:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -122,7 +122,7 @@ class TestPipelineEdgeCases:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -141,7 +141,7 @@ class TestPipelineEdgeCases:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 
                 assert isinstance(result, Result)
     
@@ -160,7 +160,7 @@ class TestPipelineEdgeCases:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 results.append(result)
         
         # All should be valid results
@@ -183,7 +183,7 @@ class TestPipelineEdgeCases:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 results.append(result)
         
         # Results should be very similar (allowing small numerical differences)
@@ -235,7 +235,7 @@ class TestPipelineEdgeCases:
                 verbose=False
             )
             
-            result, _ = run(config)
+            result, *_ = run(config)
             
             assert isinstance(result, Result)
             # Save and check that output exists

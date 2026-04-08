@@ -4,17 +4,92 @@ from typing import Union, Tuple, Literal, Optional
 import logging
 import torch
 from dataclasses import dataclass
+from pathlib import Path
 
-from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo
-from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
-from .stats import get_pvals, fit_residuals, adjust_pvals
-from .plots import plot_cv_loss
+from .model import train, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo, GridSearchResult
+from .datasets import ProtriderDataset, ProtriderSubset
+from .stats import get_pvals, fit_residuals, adjust_pvals, FitParameters
 from .config import ProtriderConfig
 
 
 __all__ = ["run"]
 
 logger = logging.getLogger(__name__)
+
+
+def save_model(model: ProtriderAutoencoder, checkpoint_path: str, q: int) -> None:
+    """Save model state dict and metadata to checkpoint path.
+    
+    Args:
+        model: Trained ProtriderAutoencoder model
+        checkpoint_path: Path where to save the model checkpoint
+        q: Latent dimension
+    """
+    checkpoint_path = Path(checkpoint_path)
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save model state dict and metadata
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'q': q,
+        'n_layers': model.n_layers,
+        'presence_absence': model.presence_absence,
+    }, checkpoint_path)
+    
+    logger.info(f'Saved model to {checkpoint_path}')
+
+
+def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_path: str, 
+               config: ProtriderConfig) -> Tuple[Optional[ProtriderAutoencoder], Optional[int]]:
+    """Load model from checkpoint path if it exists.
+    
+    Args:
+        dataset: Dataset used for model initialization
+        checkpoint_path: Path to the model checkpoint file
+        config: ProtriderConfig object
+        
+    Returns:
+        Tuple of (model, q) if model exists and loads successfully, (None, None) otherwise
+    """
+    checkpoint_path = Path(checkpoint_path)
+    
+    if not checkpoint_path.exists():
+        logger.info(f'No existing model found at {checkpoint_path}')
+        return None, None
+    
+    try:
+        # Load checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location=config.device_torch, weights_only=False)
+        q = checkpoint['q']
+        n_layers = checkpoint['n_layers']
+        presence_absence = checkpoint.get('presence_absence', False)
+        
+        logger.info(f'Loading model from {checkpoint_path} (q={q}, n_layers={n_layers})')
+        
+        # Initialize model with saved architecture
+        n_cov = dataset.covariates.shape[1]
+        n_prots = dataset.X.shape[1]
+        model = ProtriderAutoencoder(
+            in_dim=n_prots, 
+            latent_dim=q, 
+            n_layers=n_layers, 
+            h_dim=config.h_dim, 
+            n_cov=n_cov,
+            prot_means=None,
+            presence_absence=presence_absence
+        )
+        model.double().to(config.device_torch)
+        
+        # Load state dict
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        logger.info('Successfully loaded model')
+        return model, q
+        
+    except Exception as e:
+        logger.warning(f'Failed to load model from {checkpoint_path}: {e}')
+        return None, None
+
 
 @dataclass
 class Result:
@@ -36,7 +111,7 @@ class Result:
     outlier_threshold: float = 0.1  # Threshold for determining outliers
     
     def save(self, out_dir: str, format: Literal["wide", "long"] = "wide", 
-             include_all: bool = False) -> Optional[pd.DataFrame]:
+             include_all: bool = False):
         """
         Save result dataframes to CSV files.
         
@@ -51,6 +126,7 @@ class Result:
             DataFrame if format="long", None if format="wide"
             
         """
+
         if format == "wide":
             logger.info('=== Saving results in wide format ===')
             
@@ -104,13 +180,8 @@ class Result:
             self.fc.T.to_csv(out_p, header=True, index=True)
             logger.info(f"Saved fc scores to {out_p}")
             
-            return None
-            
         elif format == "long":
             logger.info('=== Saving results in long format ===')
-            
-            # Stack all dataframes at once for efficient melting
-            import pandas as pd
             
             # Create a multi-index dataframe with all values
             dfs_to_melt = {
@@ -147,8 +218,6 @@ class Result:
             out_p = f"{out_dir}/protrider_summary.csv"
             df_res.to_csv(out_p, index=None)
             logger.info(f'Saved output summary with shape {df_res.shape} to {out_p}')
-            
-            return df_res
     
     def plot_pvals(self, out_dir: str = None, **kwargs):
         """
@@ -330,12 +399,9 @@ class Result:
         )
 
 
-def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
+def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, GridSearchResult]:
     """
     Run PROTRIDER protein outlier detection.
-    
-    Automatically dispatches to cross-validation or standard mode based on config.cross_val.
-    All inputs including data files are specified in the config.
     
     Args:
         config: ProtriderConfig object with all configuration parameters including:
@@ -345,57 +411,22 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo]:
                   * Format: rows = samples
 
     Returns:
-        Tuple of (Result, ModelInfo)
+        Tuple of (Result, ModelInfo, FitParameters, GridSearchResult)
         - Result: Contains all output dataframes (residuals, p-values, z-scores, etc.)
         - ModelInfo: Contains model metadata (q, learning_rate, losses, etc.)
-                    For CV runs, includes df_folds with fold assignments
-    
+
     Examples:
-        >>> # Using file paths (file format: columns = samples, rows = proteins)
         >>> config = ProtriderConfig(
         ...     out_dir='output',
         ...     input_intensities='data.csv',  # Columns = samples
         ...     sample_annotation='annotations.csv',
-        ...     cross_val=False
         ... )
-        >>> result, model_info = run(config)
-        
-        >>> # With cross-validation
-        >>> config_cv = ProtriderConfig(
-        ...     out_dir='output',
-        ...     input_intensities='data.csv',
-        ...     cross_val=True,
-        ...     n_folds=5
-        ... )
-        >>> result, model_info = run(config_cv)
+        >>> result, model_info, fit_params, gs_result = run(config)
     """
-    if config.cross_val:
-        logger.info('Running PROTRIDER with cross-validation')
-        return _run_protrider_cv(config, config.input_intensities, config.sample_annotation)
-    else:
-        logger.info('Running PROTRIDER in standard mode')
-        return _run_protrider_standard(config, config.input_intensities, config.sample_annotation)
+    logger.info('Running PROTRIDER')
+    input_intensities = config.input_intensities
+    sample_annotation = config.sample_annotation
 
-
-def _run_protrider_standard(
-    config: ProtriderConfig,
-    input_intensities: Union[str, pd.DataFrame],
-    sample_annotation: Union[str, pd.DataFrame, None]
-) -> Tuple[Result, ModelInfo]:
-    """
-    Perform protein outlier detection in a single run (internal function).
-    
-    Args:
-        config: ProtriderConfig object with all configuration parameters
-        input_intensities: Protein intensities as file path or pandas DataFrame
-                          - File: columns = samples, rows = proteins
-                          - DataFrame: rows = samples, columns = proteins
-        sample_annotation: Sample annotations as file path, DataFrame, or None
-                          - Format: rows = samples
-
-    Returns:
-        Tuple of (Result, ModelInfo)
-    """
     # 1. Initialize dataset
     logger.info('Initializing dataset')
     dataset = ProtriderDataset(input_intensities=input_intensities,
@@ -407,153 +438,24 @@ def _run_protrider_standard(
                                device=config.device_torch,
                                input_format=config.input_format)
 
-    # 2. Find latent dim
-    logger.info('Finding latent dimension')
-    q = find_latent_dim(dataset, method=config.find_q_method,
-                        # Params for grid search method
-                        inj_freq=config.inj_freq,
-                        inj_mean=config.inj_mean,
-                        inj_sd=config.inj_sd,
-                        init_wPCA=config.init_pca,
-                        n_layers=config.n_layers,
-                        h_dim=config.h_dim,
-                        n_epochs=config.gs_epochs if config.gs_epochs else config.n_epochs,
-                        learning_rate=config.lr,
-                        batch_size=config.batch_size,
-                        pval_sided=config.pval_sided,
-                        pval_dist=config.pval_dist,
-                        out_dir=config.out_dir,
-                        device=config.device_torch,
-                        presence_absence=config.presence_absence,
-                        lambda_bce=config.lambda_presence_absence,
-                        n_jobs=config.n_jobs
-                        )
-
-    logger.info(
-        f'Latent dimension found with method {config.find_q_method}: {q}')
-
-    # 3. Init model with found latent dim
-    model = init_model(dataset, q,
-                       init_wPCA=config.init_pca,
-                       n_layer=config.n_layers,
-                       h_dim=config.h_dim,
-                       device=config.device_torch,
-                       presence_absence=config.presence_absence if config.n_layers == 1 else False
-                       )
-    criterion = MSEBCELoss(
-        presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
-    logger.info('Model:\n%s', model)
-    logger.info('Device: %s', config.device_torch)
-
-    # 4. Compute initial loss
-    df_out, df_presence, init_loss, init_mse_loss, init_bce_loss = _inference(
-        dataset, model, criterion)
-    logger.info('Initial loss after model init: %s, mse loss: %s, bce loss: %s', init_loss, init_mse_loss,
-                init_bce_loss)
-    final_loss = 10**4
-    train_losses = []
-    if config.autoencoder_training:
-        logger.info('Fitting model')
-        # 5. Train model
-        _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config.n_epochs, learning_rate=float(config.lr),
-                                      batch_size=config.batch_size)
-        df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(
-            dataset, model, criterion)
-        logger.info('Final loss: %s, mse loss: %s, bce loss: %s',
-                    final_loss, final_mse_loss, final_bce_loss)
+    # 2. Determine checkpoint path and try to load existing model
+    model = None
+    q = None
+    # Use custom checkpoint path if specified, otherwise default to out_dir/model.pt
+    if config.checkpoint_path:
+        checkpoint_path = Path(config.checkpoint_path)
     else:
-        final_loss = init_loss
-
-    # 6. Compute residuals, pvals, zscores
-    logger.info('Computing statistics')
-    df_res = dataset.data - df_out  # log data - pred data
-
-    mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs)
-    pvals, Z = get_pvals(df_res.values,
-                         mu=mu,
-                         sigma=sigma,
-                         df0=df0,
-                         how=config.pval_sided,
-                         dis=config.pval_dist, n_jobs=config.n_jobs)
-    pvals_one_sided, _ = get_pvals(df_res.values,
-                                   mu=mu,
-                                   sigma=sigma,
-                                   df0=df0,
-                                   how='left',
-                                   dis=config.pval_dist, n_jobs=config.n_jobs)
-
-    pvals_adj = adjust_pvals(pvals, method=config.pval_adj)
-    result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
-                             pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
-                             pseudocount=config.pseudocount, outlier_threshold=config.outlier_threshold,
-                             base_fn=config.base_fn, pval_dist=config.pval_dist)
-    model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
-                           n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
-                           train_losses=np.array(train_losses), df_folds=None, df0=np.array(df0))
-    return result, model_info
-
-
-def _run_protrider_cv(
-    config: ProtriderConfig,
-    input_intensities: Union[str, pd.DataFrame],
-    sample_annotation: Union[str, pd.DataFrame, None]
-) -> Tuple[Result, ModelInfo]:
-    """
-    Perform protein outlier detection with cross-validation (internal function).
+        checkpoint_path = Path(config.out_dir) / 'model.pt'
     
-    Args:
-        config: ProtriderConfig object with all configuration parameters
-        input_intensities: Protein intensities as file path or pandas DataFrame
-                          - File: columns = samples, rows = proteins
-                          - DataFrame: rows = samples, columns = proteins
-        sample_annotation: Sample annotations as file path, DataFrame, or None
-                          - Format: rows = samples
-
-    Returns:
-        Tuple of (Result, ModelInfo) - ModelInfo.df_folds contains fold assignments for CV
-    """
-    # If fit_every_fold is set to True, the model will estimate the residual distribution parameters on every fold
-    # using the train-val set.
-    # If set to False, the model will estimate the residual distribution parameters on the final test residuals
-    fit_every_fold = config.fit_every_fold
-
-    # 1. Initialize cross validation generator
-    logger.info('Initializing cross validation')
-    if config.n_folds is not None:
-        cv_gen = ProtriderKfoldCVGenerator(input_intensities, sample_annotation, config.index_col,
-                                           config.cov_used, config.max_allowed_NAs_per_protein, config.log_func,
-                                           num_folds=config.n_folds, device=config.device_torch,
-                                           input_format=config.input_format)
-    else:
-        cv_gen = ProtriderLOOCVGenerator(input_intensities, sample_annotation, config.index_col, config.cov_used,
-                                         config.max_allowed_NAs_per_protein, config.log_func, device=config.device_torch,
-                                         input_format=config.input_format)
-    dataset = cv_gen.dataset
-    criterion = MSEBCELoss(
-        presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
-    # test results
-    pvals_list = []
-    Z_list = []
-    df_out_list = []
-    df_res_list = []
-    df_presence_list = []
-    test_loss_list = []
-    train_losses_list = []
-    q_list = []
-    df0_list = []
-    folds_list = []
-    # 2. Loop over folds
-    for fold, (train_subset, val_subset, test_subset) in enumerate(cv_gen):
-
-        logger.info(f'Fold {fold}')
-        logger.info(f'Train subset size: {len(train_subset)}')
-        logger.info(f'Validation subset size: {len(val_subset)}')
-        logger.info(f'Test subset size: {len(test_subset)}')
-
-        # 3. Find latent dim
+    if checkpoint_path and checkpoint_path.exists():
+        logger.info(f'Attempting to load model from {checkpoint_path}')
+        model, q = load_model(dataset, str(checkpoint_path), config)
+    
+    # 3. If model not loaded, find latent dim and initialize new model
+    gs_result = None  # Initialize empty grid search result
+    if model is None:
         logger.info('Finding latent dimension')
-        pca_subset = ProtriderSubset.concat([train_subset, val_subset])
-        q = find_latent_dim(pca_subset, method=config.find_q_method,
+        q, gs_result = find_latent_dim(dataset, method=config.find_q_method,
                             # Params for grid search method
                             inj_freq=config.inj_freq,
                             inj_mean=config.inj_mean,
@@ -570,114 +472,105 @@ def _run_protrider_cv(
                             device=config.device_torch,
                             presence_absence=config.presence_absence,
                             lambda_bce=config.lambda_presence_absence,
-                            n_jobs=config.n_jobs
+                            common_degrees_freedom=config.common_degrees_freedom,
+                            n_jobs=config.n_jobs,
+                            patience=config.patience,
+                            min_delta=config.min_delta
                             )
+
         logger.info(
             f'Latent dimension found with method {config.find_q_method}: {q}')
 
-        # 4. Init model with found latent dim
-        model = init_model(train_subset, q, init_wPCA=config.init_pca, n_layer=config.n_layers,
-                           h_dim=config.h_dim, device=config.device_torch, presence_absence=config.presence_absence)
-
-        logger.info('Model:\n%s', model)
-        logger.info('Device: %s', config.device_torch)
-
-        # 5. Compute initial MSE loss
-        df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
-                                                                                                 criterion)
-        df_out_val, df_presence_val, val_loss, val_mse_loss, val_bce_loss = _inference(
-            val_subset, model, criterion)
-        logger.info(f'Train loss after model init: {train_loss}')
-        logger.info(f'Validation loss after model init: {val_loss}')
-        if config.autoencoder_training:
-            logger.info('Fitting model')
-            # 6. Train model
-            # todo train validate (hyperparameter tuning)
-            # todo pass validation set as well
-            train_losses, val_losses = train_val(train_subset, val_subset, model, criterion,
-                                                 n_epochs=config.n_epochs,
-                                                 learning_rate=float(config.lr),
-                                                 batch_size=config.batch_size,
-                                                 patience=config.early_stopping_patience,
-                                                 min_delta=config.early_stopping_min_delta)
-            plot_cv_loss(train_losses, val_losses, fold, config.out_dir)
-            train_losses_list.append(train_losses)
-        else:
-            train_losses_list.append([])
-
-        df_out_train, df_presence_train, train_loss, train_mse_loss, train_bce_loss = _inference(train_subset, model,
-                                                                                                 criterion)
-        df_out_val, df_presence_val, val_loss, val_mse_loss, val_bce_loss = _inference(
-            val_subset, model, criterion)
-        logger.info(f'Fold {fold} train loss: {train_loss}')
-        logger.info(f'Fold {fold} validation loss: {val_loss}')
-
-        # 7. Compute residuals on test set
-        logger.info('Running model on test set')
-        df_out_test, df_presence_test, test_loss, test_mse_loss, test_bce_loss = _inference(test_subset, model,
-                                                                                            criterion)
-        logger.info(f'Fold {fold} test loss: {test_loss}')
-        df_res_test = test_subset.data - df_out_test  # log data - pred data
-
-        df_out_list.append(df_out_test)
-        if df_presence_test is not None:
-            df_presence_list.append(df_presence_test)
-        df_res_list.append(df_res_test)
-        test_loss_list.append(test_loss)
-        q_list.append(q)
-        folds_list.extend([fold] * len(df_out_test))
-
-        if fit_every_fold:
-            # 8. Fit residual distribution on train-val set
-            logger.info(
-                'Estimating residual distribution parameters on train-val set')
-            df_res_val = val_subset.data - df_out_val  # log data - pred data
-            df_res_train = train_subset.data - df_out_train  # log data - pred data
-            mu, sigma, df0 = fit_residuals(
-                pd.concat([df_res_train, df_res_val]).values, dis=config.pval_dist, n_jobs=config.n_jobs)
-            pvals, Z = get_pvals(df_res_test.values, mu=mu,
-                                 sigma=sigma, df0=df0, how=config.pval_sided, n_jobs=config.n_jobs)
-            pvals_list.append(pvals)
-            Z_list.append(Z)
-            df0_list.append(df0)
-
-    df_res = pd.concat(df_res_list)
-    df_out = pd.concat(df_out_list)
-    df_presence = pd.concat(
-        df_presence_list) if df_presence_list != [] else None
-    df_folds = pd.DataFrame({'fold': folds_list, }, index=df_out.index)
-
-    # Compute p-values on test set
-    if fit_every_fold:
-        pvals = np.concatenate(pvals_list)
-        Z = np.concatenate(Z_list)
+        # Init model with found latent dim
+        model = init_model(dataset, q,
+                           init_wPCA=config.init_pca,
+                           n_layer=config.n_layers,
+                           h_dim=config.h_dim,
+                           device=config.device_torch,
+                           presence_absence=config.presence_absence if config.n_layers == 1 else False
+                           )
     else:
-        logger.info('Estimating residual distribution parameters')
-        mu, sigma, df0 = fit_residuals(df_res.values, dis=config.pval_dist, n_jobs=config.n_jobs)
-        pvals, Z = get_pvals(df_res.values, mu=mu, sigma=sigma, df0=df0,
-                             how=config.pval_sided, n_jobs=config.n_jobs)
-        # Repeat df0 for each sample in the output
-        df0_list = [df0] * len(df_out)
+        logger.info(f'Using loaded model with q={q}')
+    
+    criterion = MSEBCELoss(
+        presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
+    logger.info('Model:\n%s', model)
+    logger.info('Device: %s', config.device_torch)
 
-    # Compute one-sided p-values (used for some plots)
+    # 4. Compute initial loss
+    df_out, df_presence, init_loss, init_mse_loss, init_bce_loss = _inference(
+        dataset, model, criterion)
+    logger.info('Initial loss after model init: %s, mse loss: %s, bce loss: %s', init_loss, init_mse_loss,
+                init_bce_loss)
+    final_loss = 10**4
+    train_losses = []
+    
+    # 5. Train model if needed (skip if model was loaded from checkpoint)
+    model_was_loaded = (checkpoint_path and checkpoint_path.exists() and q is not None)
+    should_train = config.autoencoder_training and not model_was_loaded
+    
+    if should_train:
+        wandb = None
+        if config.use_wandb:
+            import wandb as _wandb
+            wandb = _wandb
+            wandb.init(project=config.wandb_project,
+                       name=config.wandb_name,
+                       config={
+                           'latent_dim': q,
+                           'n_layers': config.n_layers,
+                           'h_dim': config.h_dim,
+                           'learning_rate': config.lr,
+                           'n_epochs': config.n_epochs,
+                           'batch_size': config.batch_size,
+                           'presence_absence': config.presence_absence,
+                           'lambda_bce': config.lambda_presence_absence
+                       })
+
+        logger.info('Fitting model')
+        _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config.n_epochs, learning_rate=float(config.lr),
+                                      batch_size=config.batch_size, wandb=wandb, patience=config.patience, min_delta=config.min_delta)
+        df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(
+            dataset, model, criterion)
+        logger.info('Final loss: %s, mse loss: %s, bce loss: %s',
+                    final_loss, final_mse_loss, final_bce_loss)
+        
+        # Save the trained model to checkpoint
+        if checkpoint_path:
+            save_model(model, str(checkpoint_path), q)
+            if config.use_wandb:
+                wandb.log_model(str(checkpoint_path), 'protrider_model')
+        
+        if config.use_wandb:
+            wandb.finish()
+    else:
+        if model_was_loaded:
+            logger.info('Skipping training - using loaded model from checkpoint')
+        final_loss = init_loss
+
+    # 6. Compute residuals, pvals, zscores
+    logger.info('Computing statistics')
+    df_res = dataset.data - df_out  # log data - pred data
+
+    fit_params = fit_residuals(df_res, dis=config.pval_dist, n_jobs=config.n_jobs, use_common_df=config.common_degrees_freedom)
+    pvals, Z = get_pvals(df_res.values,
+                         fit_params=fit_params,
+                         how=config.pval_sided,
+                         dis=config.pval_dist, n_jobs=config.n_jobs)
     pvals_one_sided, _ = get_pvals(df_res.values,
-                                   mu=mu,
-                                   sigma=sigma,
-                                   df0=df0 if config.pval_dist == 't' else None,
+                                   fit_params=fit_params,
                                    how='left',
-                                   dis=config.pval_dist,
-                                   n_jobs=config.n_jobs)
+                                   dis=config.pval_dist, n_jobs=config.n_jobs)
 
     pvals_adj = adjust_pvals(pvals, method=config.pval_adj)
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
                              pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
-                             pseudocount=config.pseudocount,
-                             outlier_threshold=config.outlier_threshold, base_fn=config.base_fn, pval_dist=config.pval_dist)
-    model_info = ModelInfo(q=np.array(q_list), learning_rate=np.array(config.lr),
-                           n_epochs=np.array(config.n_epochs), test_loss=np.array(test_loss_list),
-                           train_losses=np.array(train_losses_list, dtype=object), 
-                           df0=np.array(df0_list), df_folds=df_folds)
-    return result, model_info
+                             pseudocount=config.pseudocount, outlier_threshold=config.outlier_threshold,
+                             base_fn=config.base_fn, pval_dist=config.pval_dist)
+    model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
+                           n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
+                           train_losses=np.array(train_losses))
+    return result, model_info, fit_params, gs_result
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss):

@@ -10,7 +10,7 @@ from .datasets import covariates
 
 
 __all__ = ["plot_pvals", "plot_encoding_dim", "plot_aberrant_per_sample", "plot_aberrant_per_sample",
-           "plot_training_loss", "plot_cv_loss", "plot_expected_vs_observed", "plot_correlation_heatmap"]
+           "plot_training_loss", "plot_expected_vs_observed", "plot_correlation_heatmap"]
 
 logger = logging.getLogger(__name__)
 
@@ -295,27 +295,6 @@ def plot_correlation_heatmap(output_dir, sample_annotation_path: str, plot_title
     plt.savefig(output_dir / 'plots' / 'correlation_heatmap.png', dpi=300, bbox_inches='tight')
     plt.close()
     logger.info(f"Saved correlation heatmap to {output_dir / 'plots' / 'correlation_heatmap.png'}")
-
-
-def plot_cv_loss(train_losses, val_losses, fold, out_dir):
-    # plot the loss history; stratified by fold
-    plot_dir = Path(out_dir) / 'plots'
-    plot_dir.mkdir(parents=True, exist_ok=True)
-    out_p = f'{plot_dir}/loss_history_fold{fold}.png'
-
-    df = pd.concat([pd.DataFrame(dict(type='validation', loss=val_losses, epoch=np.arange(len(val_losses)))),
-                    pd.DataFrame(dict(type='train', loss=train_losses, epoch=np.arange(len(train_losses))))])
-    sns.set(style="whitegrid")
-    plt.figure(figsize=(10, 6))
-    sns.lineplot(data=df, x='epoch', y='loss', hue='type')
-    plt.title(f'Loss history for fold {fold}')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend(title=f'Fold {fold}')
-    plt.savefig(out_p)
-    plt.close()
-    logger.info(f"Saved loss history plot for fold {fold} to {out_p}")
-
 
 def plot_expected_vs_observed(protein_id, output_dir=None, plot_title="", fontsize=10, 
                              processed_input=None, output_data=None, protrider_summary=None):

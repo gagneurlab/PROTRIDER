@@ -1,6 +1,4 @@
 import copy
-from typing import Optional
-
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -21,9 +19,7 @@ class ModelInfo:
     n_epochs: np.array
     test_loss: np.array
     train_losses: np.array
-    df0: np.array = None  # Degrees of freedom for the t-distribution, if applicable
-    df_folds: Optional[pd.DataFrame] = None  # DataFrame with fold assignments (for CV runs)
-    
+
     def save(self, out_dir: str) -> None:
         """
         Save model information to CSV files.
@@ -32,31 +28,17 @@ class ModelInfo:
             out_dir: Output directory path
         """
         import pandas as pd
-        import dataclasses
         from pathlib import Path
         
         logger.info('=== Saving model info ===')
         
         out_dir = Path(out_dir)
-        model_info_dict = dataclasses.asdict(self)
-        
-        # Remove df_folds from model_info_dict to handle separately
-        df_folds = model_info_dict.pop("df_folds", None)
-        
-        if self.q.ndim == 0:
-            # make all variables of model_info arrays
-            model_info_dict = {k: np.array([v]) for k, v in model_info_dict.items()}
 
-        folds = np.arange(len(model_info_dict['q']))
-        
-        # Remove train_losses from dict (handled separately for non-CV runs)
-        train_losses = model_info_dict.pop("train_losses")
-        
-        # Save training losses separately if not doing CV
-        if df_folds is None and len(train_losses) > 0:
+        train_losses = np.asarray(self.train_losses).flatten()
+        if len(train_losses) > 0:
             train_losses_df = pd.DataFrame({
-                'epoch': range(1, len(train_losses[0]) + 1),
-                'train_loss': train_losses[0],
+                'epoch': range(1, len(train_losses) + 1),
+                'train_loss': train_losses,
             })
             out_p = out_dir / 'train_losses.csv'
             train_losses_df.to_csv(out_p, header=True, index=False)
@@ -64,16 +46,15 @@ class ModelInfo:
 
         # Save additional info
         out_p = out_dir / 'additional_info.csv'
-        df_info = pd.DataFrame(model_info_dict, index=pd.Index(folds, name='fold'))
-        df_info.to_csv(out_p, header=True, index=True)
+        df_info = pd.DataFrame({
+            'q': [self.q.item() if hasattr(self.q, 'item') else self.q],
+            'learning_rate': [self.learning_rate.item() if hasattr(self.learning_rate, 'item') else self.learning_rate],
+            'n_epochs': [self.n_epochs.item() if hasattr(self.n_epochs, 'item') else self.n_epochs],
+            'test_loss': [self.test_loss.item() if hasattr(self.test_loss, 'item') else self.test_loss],
+        })
+        df_info.to_csv(out_p, header=True, index=False)
         logger.info(f"Saved additional info to {out_p}")
 
-        # Save folds if provided
-        if df_folds is not None:
-            out_p = out_dir / 'folds.csv'
-            df_folds.to_csv(out_p, header=True, index=True)
-            logger.info(f"Saved folds to {out_p}")
-    
     def plot_training_loss(self, out_dir: str = None, **kwargs):
         """
         Plot training loss history.
@@ -121,12 +102,14 @@ class ConditionalEnDecoder(nn.Module):
             self.model = last_layer
 
         elif n_layers > 1:
+            if h_dim is None:
+                h_dim = out_dim if is_encoder else in_dim
             modules = []
-            modules.append(nn.Linear(in_dim, h_dim, bias=False))
-            modules.append(nn.ReLU())
+            modules.append(nn.Linear(in_dim, h_dim))
+            modules.append(nn.GELU())
             for _ in range(1, n_layers - 1):
-                modules.append(nn.Linear(h_dim, h_dim, bias=False))
-                modules.append(nn.ReLU())
+                modules.append(nn.Linear(h_dim, h_dim))
+                modules.append(nn.GELU())
             # if the model is a decoder, then we want to have trainable bias
             last_layer = nn.Linear(h_dim, out_dim, bias=not is_encoder or prot_means is None)
             modules.append(last_layer)
@@ -176,26 +159,34 @@ class ProtriderAutoencoder(nn.Module):
         return out
 
     def initialize_wPCA(self, Vt_q, prot_means, n_cov=0):
-        if self.n_layers > 1:
-            logger.warning('Initialization only possible for n_layers=1. Going back to random init...')
+        if self.n_layers == 1:
+            enc_layer = self.encoder.model
+            dec_layer = self.decoder.model
+        else:
+            enc_layer = self.encoder.model[0]
+            dec_layer = self.decoder.model[-1]
+
+        if enc_layer.weight.data.shape[0] != Vt_q.shape[0] or dec_layer.weight.data.shape[1] != Vt_q.shape[0] + n_cov:
+            logger.warning(f'PCA initialization skipped: layer dimensions do not match latent dim. '
+                           f'This happens when h_dim is explicitly set.')
             return
 
-        device = self.encoder.model.weight.device
+        device = enc_layer.weight.device
         Vt_q = torch.from_numpy(Vt_q).to(device) # (q, n_prots)
 
         ## ENCODER weights: (q, n_prots + n_cov), bias: (q)
-        cov_enc_init = self.encoder.model.weight.data[:, 0:n_cov]
-        self.encoder.model.weight.data.copy_(
+        cov_enc_init = enc_layer.weight.data[:, 0:n_cov]
+        enc_layer.weight.data.copy_(
             torch.cat([Vt_q.to(device),
                        cov_enc_init.to(device)], axis=1)
         )
 
-        self.encoder.model.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
+        enc_layer.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
 
         ## DECODER weights: (n_prots, q + n_cov), bias: (n_prot)
-        self.decoder.model.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
-        cov_dec_init = self.decoder.model.weight.data[:, 0:n_cov]
-        self.decoder.model.weight.data.copy_(
+        dec_layer.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
+        cov_dec_init = dec_layer.weight.data[:, 0:n_cov]
+        dec_layer.weight.data.copy_(
             torch.cat([Vt_q.T.to(device),
                        cov_dec_init.to(device)], axis=1)
         )      
@@ -237,51 +228,7 @@ class MSEBCELoss(nn.Module):
         return loss, mse_loss, bce_loss
 
 
-def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
-              batch_size=None, patience=100, min_delta=0.001):
-    # start data;pader
-    if batch_size is None:
-        batch_size = train_subset.X.shape[0]
-    data_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-    min_val_loss = np.inf
-    best_model_wts = copy.deepcopy(model.state_dict())
-    early_stopping_counter = 0
-    early_stopping_epoch = 0
-
-    train_losses = []
-    val_losses = []
-    for epoch in tqdm(range(n_epochs)):
-        train_loss, train_mse_loss, train_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
-
-        if epoch % val_every_nepochs == 0:
-            train_losses.append(train_loss)
-            x_hat_val = model(val_subset.X, val_subset.torch_mask, cond=val_subset.covariates)
-            val_loss, val_mse_loss, val_bce_loss = criterion(x_hat_val, val_subset.X, val_subset.torch_mask)
-
-            val_losses.append(val_loss.detach().cpu().numpy())
-            logger.debug('[%d] train loss: %.6f' % (epoch + 1, train_loss))
-            logger.debug('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
-
-            if min_val_loss - val_loss > min_delta:
-                min_val_loss = val_loss
-                best_model_wts = copy.deepcopy(model.state_dict())
-                early_stopping_counter = 0
-                early_stopping_epoch = epoch + 1
-            else:
-                early_stopping_counter += 1
-                if early_stopping_counter >= patience:
-                    logger.info(f"\tEarly stopping at epoch {epoch + 1}")
-                    break
-
-    logger.info('\tRestoring model weights from epoch %s', early_stopping_epoch)
-    model.load_state_dict(best_model_wts)
-    # make losses a 2d array
-    return np.array(train_losses), np.array(val_losses)
-
-
-def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None):
+def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None, patience=50, min_delta=1e-4):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
@@ -290,12 +237,37 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
                                               shuffle=True)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=patience // 4)
     train_losses = []
+    min_train_loss = float('inf')
+    early_stopping_counter = 0
+    best_model_wts = copy.deepcopy(model.state_dict())
+    early_stopping_epoch = 0
     for epoch in tqdm(range(n_epochs)):
         running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
+        scheduler.step(running_loss)
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
                                                                           running_mse_loss, running_bce_loss))
         train_losses.append(running_loss)
+        if wandb is not None:
+            wandb.log({
+                'train/loss': running_loss,
+                'train/mse_loss': running_mse_loss,
+                'train/bce_loss': running_bce_loss
+            })
+        if min_train_loss - running_loss > min_delta:
+            min_train_loss = running_loss
+            best_model_wts = copy.deepcopy(model.state_dict())
+            early_stopping_counter = 0
+            early_stopping_epoch = epoch + 1
+        else:
+            early_stopping_counter += 1
+            if early_stopping_counter >= patience:
+                logger.info(f"\tEarly stopping at epoch {epoch + 1}")
+                break
+
+    logger.info('\tRestoring model weights from epoch %s', early_stopping_epoch)
+    model.load_state_dict(best_model_wts)
     return running_loss, running_mse_loss, running_bce_loss, train_losses
 
 

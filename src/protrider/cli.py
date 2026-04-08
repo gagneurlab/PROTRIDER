@@ -244,7 +244,7 @@ def run(config_path: str):
         np.random.seed(config.seed)
 
     # Run PROTRIDER - all inputs are in config
-    result, model_info = run_pipeline(config)
+    result, model_info, fit_parameters, gs_results = run_pipeline(config)
 
     # Save results
     # Save wide format (individual CSV files)
@@ -255,7 +255,11 @@ def run(config_path: str):
     model_info.save(config.out_dir)
     # Save config
     config.save(config.out_dir)
-
+    # Save fit parameters
+    fit_parameters.to_csv(config.out_dir)
+    # Save grid search results if available
+    if gs_results is not None:
+        gs_results.to_csv(config.out_dir)
 
 if __name__ == '__main__':
     cli(obj={})

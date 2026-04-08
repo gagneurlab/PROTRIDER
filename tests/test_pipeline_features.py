@@ -20,6 +20,27 @@ from protrider.model import ModelInfo
 class TestPipelineAdvancedFeatures:
     """Test class for advanced pipeline features."""
     
+    def test_t_distribution_not_common_df(self, protein_intensities_path, protein_intensities_index_col):
+        """Test using t-distribution for p-value calculation when degrees of freedom are low."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = ProtriderConfig(
+                out_dir=tmp_dir,
+                input_intensities=str(protein_intensities_path),
+                index_col=protein_intensities_index_col,
+                common_degrees_freedom=False,
+                pval_dist="t",
+                n_epochs=2,
+                find_q_method='5',
+                verbose=False,
+                n_jobs=1  # Use single thread for testing to avoid issues with multiprocessing in tests
+            )
+                
+            result, *_ = run(config)
+            
+            assert isinstance(result, Result)
+            # Check p-values are computed
+            assert result.df_pvals.notna().any().any()
+
     def test_different_log_transformations(self, protein_intensities_path, protein_intensities_index_col):
         """Test different log transformation methods."""
         for log_func in ["log", "log2", "log10"]:
@@ -34,7 +55,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, model_info = run(config)
+                result, model_info, *_ = run(config)
                 
                 assert isinstance(result, Result)
                 assert isinstance(model_info, ModelInfo)
@@ -52,7 +73,7 @@ class TestPipelineAdvancedFeatures:
                 verbose=False
             )
             
-            result, _ = run(config)
+            result, *_ = run(config)
             
             assert isinstance(result, Result)
     
@@ -70,7 +91,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 
                 assert isinstance(result, Result)
                 # Check p-values are computed
@@ -90,7 +111,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 
                 assert isinstance(result, Result)
                 # Check adjusted p-values are in valid range [0, 1]
@@ -116,7 +137,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, model_info = run(config)
+                result, model_info, *_ = run(config)
                 
                 assert isinstance(result, Result)
                 assert model_info.q > 0
@@ -138,7 +159,7 @@ class TestPipelineAdvancedFeatures:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert model_info.q > 0
@@ -159,7 +180,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 
                 assert isinstance(result, Result)
     
@@ -176,7 +197,7 @@ class TestPipelineAdvancedFeatures:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -195,7 +216,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, model_info = run(config)
+                result, model_info, *_ = run(config)
                 
                 assert isinstance(result, Result)
                 assert model_info.learning_rate == lr
@@ -215,7 +236,7 @@ class TestPipelineAdvancedFeatures:
                 verbose=False
             )
             
-            result_pca, model_info_pca = run(config_pca)
+            result_pca, model_info_pca, *_ = run(config_pca)
             
             assert isinstance(result_pca, Result)
             assert isinstance(model_info_pca, ModelInfo)
@@ -235,7 +256,7 @@ class TestPipelineAdvancedFeatures:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -254,7 +275,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 
                 assert isinstance(result, Result)
                 # Number of outliers should vary with threshold
@@ -275,7 +296,7 @@ class TestPipelineAdvancedFeatures:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -298,7 +319,7 @@ class TestPipelineAdvancedFeatures:
                     verbose=False
                 )
                 
-                result, _ = run(config)
+                result, *_ = run(config)
                 
                 assert isinstance(result, Result)
     
@@ -324,7 +345,7 @@ class TestPipelineAdvancedFeatures:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)

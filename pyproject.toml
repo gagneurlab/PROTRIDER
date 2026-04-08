@@ -32,7 +32,7 @@ dependencies = [
     'seaborn',
     'plotnine',
     'pyarrow',
-    'fastparquet'
+    'fastparquet',
 ]
 
 [project.urls]
@@ -48,3 +48,6 @@ dev = [
     "pytest-xdist",
     "cython"
 ]
+
+[project.optional-dependencies]
+wandb = ["wandb"]
