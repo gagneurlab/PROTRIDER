@@ -4,29 +4,58 @@ PROTRIDER is an autoencoder-based method to call protein outliers from mass spec
 
 Have a look at our [paper](https://doi.org/10.1093/bioinformatics/btaf628) for information about our work.
 
+## Table of Contents
+
+- [Quickstart](#quickstart)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Input files](#input-files)
+  - [Configuration file](#configuration-file)
+  - [Running from the command line](#running-protrider-from-the-command-line)
+  - [Output files](#output-files)
+  - [Model checkpointing](#model-checkpointing)
+  - [Using as a Python package](#using-protrider-as-a-python-package)
+- [Citation](#citation)
+
+## Quickstart
+
+```bash
+# 1. Install
+pip install .
+
+# 2. Run on the included sample data
+protrider run --config config.yaml
+
+# 3. Plot results
+protrider plot --config config.yaml all
+```
+
+Results are written to the directory specified by `out_dir` in `config.yaml` (default: `output/`). The key output file is `protrider_summary.csv`, which contains outlier calls with p-values, z-scores, and fold changes for every sample–protein pair.
+
 ## Installation
 
 ### Prerequisites
 
-PROTRIDER was trained and tested using Python 3.14 on a Linux system. We recommend installing and running PROTRIDER on a dedicated conda environment. To create and activate the conda environment run the following commands:
+PROTRIDER was trained and tested using Python 3.14 on a Linux system. We recommend installing and running PROTRIDER in a dedicated conda environment:
 
-```
+```bash
 conda create --name protrider_env python=3.14
 conda activate protrider_env
 ```
 
-More information on conda environments can be found in Conda's user guide.
+More information on conda environments can be found in [Conda's user guide](https://docs.conda.io/projects/conda/en/latest/user-guide/).
 
+### Install
 
-To install PROTRIDER run the following command inside the root directory:
+Run the following command inside the root directory:
 
-```
+```bash
 pip install .
 ```
 
-To test the installation run 
+Verify the installation:
 
-```
+```bash
 protrider --help
 ```
 
@@ -35,135 +64,128 @@ protrider --help
 ### Input files
 
 - **Protein intensities**: CSV, TSV, or Parquet file
-  - **File format**: Columns represent **samples**, rows represent **proteins** (wide format)
+  - Columns represent **samples**, rows represent **proteins**
   - Example: `sample_data/protrider_sample_dataset.tsv`
 - **Sample annotation** (optional): CSV or tab-separated file containing known covariates
-  - Format: Each row represents a sample
+  - Each row represents one sample
   - Example: `sample_data/sample_annotations.tsv`
 
-An example dataset can be found in this repository under `sample_data/`. 
+An example dataset is included under `sample_data/`.
 
 ### Configuration file
 
-To run PROTRIDER, a configuration file needs to be provided. This can be adapted from the configuration file provided in this code repo (`config.yaml`). User options include
+All parameters are set in a YAML configuration file. A template is provided as `config.yaml`. Key options:
 
-- `out_dir`: Path to the directory to store output files.
-- `input_intensities`: Csv input file containing the protein intensities.
-- `cov_used`: List of column names contained in the sample annotation file to be included as known covariates.
-- `find_q_method`: Method to determine latent space dimension of autoencoder.
-- `pval_dist`: Distribution (Gaussian or Student's t-test) for P-value calculation.
-- `checkpoint_path`: (Optional) Path to save/load model checkpoint. If not specified, models are saved to `<out_dir>/model.pt`.
+| Parameter | Description |
+|-----------|-------------|
+| `out_dir` | Output directory |
+| `input_intensities` | Path to protein intensities file |
+| `sample_annotation` | Path to sample annotations file (optional) |
+| `index_col` | Column name containing protein IDs |
+| `cov_used` | List of covariate column names from the annotation file (optional) |
+| `find_q_method` | Method to determine latent dimension: `OHT` (default), `gs`, `bs` (binary search), or an integer |
+| `pval_dist` | Distribution for p-value calculation: `t` (default) or `gaussian` |
+| `n_epochs` | Number of training epochs (default: `100`) |
+| `checkpoint_path` | Path to save/load model checkpoint (optional) |
 
-### Model Checkpointing
+### Running PROTRIDER from the command line
 
-PROTRIDER automatically saves trained models and reuses them in subsequent runs, skipping training if a checkpoint exists. By default, models are saved to `<out_dir>/model.pt`.
+**Run the pipeline:**
+
+```bash
+protrider run --config config.yaml
+```
+
+**Generate plots:**
+
+```bash
+# All plots
+protrider plot --config config.yaml all
+
+# Individual plot types
+protrider plot --config config.yaml pvals
+protrider plot --config config.yaml aberrant_per_sample
+protrider plot --config config.yaml training_loss
+protrider plot --config config.yaml encoding_dim
+
+# Expected vs observed for a specific protein
+protrider plot --config config.yaml expected_vs_observed --protein_id <protein_id>
+```
+
+### Output files
+
+| File | Description |
+|------|-------------|
+| `protrider_summary.csv` | Long-format summary with outlier calls for all sample–protein pairs |
+| `pvals.csv` | Two-sided p-values (samples × proteins) |
+| `pvals_adj.csv` | BH/BY-adjusted p-values |
+| `pvals_one_sided.csv` | Left-sided p-values |
+| `zscores.csv` | Z-scores |
+| `residuals.csv` | Model residuals (observed − predicted) |
+| `log2fc.csv` | Log2 fold changes |
+| `fc.csv` | Fold changes |
+| `output.csv` | Autoencoder reconstructed values |
+| `processed_input.csv` | Preprocessed input passed to the autoencoder |
+| `additional_info.csv` | Model metadata (latent dimension, learning rate, loss) |
+| `train_losses.csv` | Per-epoch training loss |
+| `fit_parameters.csv` | Per-protein distribution fit parameters |
+| `config.yaml` | Saved configuration for reproducibility |
+
+### Model checkpointing
+
+PROTRIDER automatically saves trained models and reuses them in subsequent runs, skipping retraining if a checkpoint exists. By default the model is saved to `<out_dir>/model.pt`.
 
 To use a custom checkpoint location, set `checkpoint_path` in your config:
 
 ```yaml
-checkpoint_path: 'models/my_model.pt'  # Custom checkpoint location
+checkpoint_path: models/my_model.pt
 ```
 
-To force retraining, delete the checkpoint file or specify a different path.
-
-### Running PROTRIDER from the command line
-
-Run PROTRIDER using the following command: 
-
-```bash
-protrider run --config <config_path>
-```
-
-All input and output paths (including `input_intensities`, `sample_annotation`, and `out_dir`) should be specified in the configuration file.
-
-To generate plots with PROTRIDER, use the following command (specify one or more plot types as needed):
-```bash
-protrider plot --plot_type <plot_types> --config <config_path> --out_dir <out_dir>
-```
-#### Plot options
-
-You can specify one or more plot types using the `--plot_type` option:
-
-- `training_loss`: Plot training loss history
-- `aberrant_per_sample`: Plot number of aberrant proteins per sample
-- `pvals`: Plot the p-value plots
-- `encoding_dim`: Plot the encoding dimension search plot
-- `expected_vs_observed`: Plot expected vs observed protein intensity for a specific protein (requires `--protein_id`)
-- `all`: Equivalent to specifying all of the above except `expected_vs_observed`.
-
-Example:
-```
-protrider plot --plot_type pvals --config <config_path>
-```
-
-To plot expected vs observed for a specific protein:
-```
-protrider plot --plot_type expected_vs_observed --protein_id <protein_id> --config <config_path>
-```
-
-
-#### Output files
-
-PROTRIDER generates several output files in the specified output directory:
-
-- `pvals.csv`: P-values for each protein in each sample
-- `pvals_adj.csv`: Adjusted p-values (FDR correction)
-- `zscores.csv`: Z-scores for each protein in each sample
-- `residuals.csv`: Model residuals
-- `log2fc.csv`: Log2 fold changes
-- `fc.csv`: Fold changes
-- `output.csv`: Combined long-format output (when using `format='long'`)
-- `config.yaml`: Saved configuration for reproducibility
-- `model_info.yaml`: Model metadata (latent dimension, learning rate, etc.)
-
+To force retraining, delete the checkpoint file or point to a new path.
 
 ### Using PROTRIDER as a Python package
 
-PROTRIDER can also be used directly as a Python package for more flexibility:
-
 ```python
 import protrider
-import pandas as pd
 
-# File format: columns = samples, rows = proteins
 config = protrider.ProtriderConfig(
     out_dir='output/',
-    input_intensities='data/protein_intensities.csv',  # Columns = samples
+    input_intensities='data/protein_intensities.csv',
     sample_annotation='data/sample_annotations.csv',
     index_col='protein_ID',
     cov_used=['AGE', 'SEX'],
-    n_epochs=100
+    n_epochs=100,
 )
 
-# Run PROTRIDER
-result, model_info = protrider.run(config)
+# Run
+result, model_info, fit_params, gs_result = protrider.run(config)
 
-# Save results in different formats
-result.save(config.out_dir, format='wide')  # Individual CSV files (pvals.csv, zscores.csv, etc.)
-result.save(config.out_dir, format='long')  # Single combined CSV (output.csv)
+# Save results
+result.save(config.out_dir, format='wide')   # individual CSV files
+result.save(config.out_dir, format='long')   # protrider_summary.csv
+model_info.save(config.out_dir)
+config.save(config.out_dir)
 
-# Save model info and config
-model_info.save(config.out_dir)  # Saves additional_info.csv, train_losses.csv
-config.save(config.out_dir)      # Saves config.yaml
-
-# Generate plots (out_dir is optional - omit to get plot objects without saving)
+# Generate plots (omit out_dir to get plot objects without saving)
 model_info.plot_training_loss(config.out_dir)
 result.plot_aberrant_per_sample(config.out_dir)
 hist_plot, qq_plot = result.plot_pvals(config.out_dir)
 result.plot_expected_vs_observed('protein_123', config.out_dir)
 
-# Access results as DataFrames for further analysis
-pvals = result.df_pvals           # P-values
-pvals_adj = result.df_pvals_adj   # Adjusted p-values
-zscores = result.df_Z             # Z-scores
-residuals = result.df_res         # Residuals
-log2fc = result.log2fc            # Log2 fold changes
-fc = result.fc                    # Fold changes
+# Access results as DataFrames
+result.df_pvals        # p-values
+result.df_pvals_adj    # adjusted p-values
+result.df_Z            # z-scores
+result.df_res          # residuals
+result.log2fc          # log2 fold changes
+result.fc              # fold changes
 ```
 
 ## Citation
-If you use this tool, please cite the original paper:
-```
+
+If you use PROTRIDER, please cite:
+
+```bibtex
 @article{10.1093/bioinformatics/btaf628,
     author = {Klaproth-Andrade, Daniela and Scheller, Ines F and Tsitsiridis, Georgios and Loipfinger, Stefan and Mertes, Christian and Smirnov, Dmitrii and Prokisch, Holger and Yépez, Vicente A and Gagneur, Julien},
     title = {PROTRIDER: Protein abundance outlier detection from mass spectrometry-based proteomics data with a conditional autoencoder},
@@ -171,12 +193,8 @@ If you use this tool, please cite the original paper:
     pages = {btaf628},
     year = {2025},
     month = {11},
-    abstract = {Detection of gene regulatory aberrations enhances our ability to interpret the impact of inherited and acquired genetic variation for rare disease diagnostics and tumor characterization. While numerous methods for calling RNA expression outliers from RNA-sequencing data have been proposed, the establishment of protein expression outliers from mass spectrometry data is lacking.Here, we propose and assess various modeling approaches to call protein expression outliers across three datasets from rare disease diagnostics and oncology. We use as independent evidence the enrichment for outlier calls in matched RNA-seq samples and the enrichment for rare variants likely disrupting protein expression. We show that controlling for hidden confounders and technical covariates, while simultaneously modeling the occurrence of missing values, is largely beneficial and can be achieved using conditional autoencoders. Moreover, we find that the differences between experimental and fitted log-transformed intensities by such models exhibit heavy tails that are poorly captured with the Gaussian distribution and report stronger statistical calibration when instead using the Student’s t-distribution. Our resulting method, PROTRIDER, outperformed baseline approaches based on raw log-intensities Z-scores, PCA, and isolation-based anomaly detection with Isolation forests. The application of PROTRIDER reveals significant enrichments of AlphaMissense pathogenic variants in protein expression outliers. Overall, PROTRIDER provides a method to confidently identify aberrantly expressed proteins applicable to rare disease diagnostics and cancer proteomics.PROTRIDER is freely available at github.com/gagneurlab/PROTRIDER and also available on Zenodo under the DOI zenodo.15569781.Supplementary data are available at Bioinformatics online.},
     issn = {1367-4811},
     doi = {10.1093/bioinformatics/btaf628},
     url = {https://doi.org/10.1093/bioinformatics/btaf628},
-    eprint = {https://academic.oup.com/bioinformatics/advance-article-pdf/doi/10.1093/bioinformatics/btaf628/65416092/btaf628.pdf},
 }
 ```
-
-
