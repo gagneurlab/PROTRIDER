@@ -29,7 +29,7 @@ def read_protein_intensities(input_intensities: str, index_col: str, input_forma
         data = pd.read_csv(input_intensities,
                            sep='\t').set_index(index_col)
     elif file_extension == '.parquet':
-        data = pd.read_parquet(input_intensities, index=False, engine='fastparquet').set_index(index_col)
+        data = pd.read_parquet(input_intensities, engine='fastparquet').set_index(index_col)
     else:
         raise ValueError(f"Unsupported file type: {file_extension}")
     
