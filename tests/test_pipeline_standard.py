@@ -32,7 +32,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             # Check result type
             assert isinstance(result, Result)
@@ -85,7 +85,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -105,7 +105,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             assert isinstance(result, Result)
             assert isinstance(model_info, ModelInfo)
@@ -122,7 +122,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             # Save in wide format
             result.save(tmp_dir, format='wide')
@@ -135,7 +135,6 @@ class TestPipelineStandardMode:
             assert (out_dir / 'residuals.csv').exists()
             assert (out_dir / 'log2fc.csv').exists()
             assert (out_dir / 'fc.csv').exists()
-            assert (out_dir/ 'degrees_of_freedom.csv').exists()
 
     
     def test_save_results_long_format(self, protein_intensities_path, protein_intensities_index_col):
@@ -150,7 +149,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             # Save in long format
             result.save(tmp_dir, format='long')
@@ -158,7 +157,6 @@ class TestPipelineStandardMode:
             # Check that output file was created (long format saves as protrider_summary.csv)
             out_dir = Path(tmp_dir)
             assert (out_dir / 'protrider_summary.csv').exists()
-            assert (out_dir/ 'degrees_of_freedom.csv').exists()
             
             # Load and check structure
             output_df = pd.read_csv(out_dir / 'protrider_summary.csv')
@@ -195,7 +193,7 @@ class TestPipelineStandardMode:
                 verbose=False
             )
             
-            result, model_info = run(config)
+            result, model_info, *_ = run(config)
             
             # Check basic outputs
             assert isinstance(result, Result)

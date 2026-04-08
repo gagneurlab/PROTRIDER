@@ -6,10 +6,9 @@ import torch
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import train, train_val, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo, GridSearchResult
-from .datasets import ProtriderDataset, ProtriderSubset, ProtriderKfoldCVGenerator, ProtriderLOOCVGenerator
+from .model import train, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo, GridSearchResult
+from .datasets import ProtriderDataset, ProtriderSubset
 from .stats import get_pvals, fit_residuals, adjust_pvals, FitParameters
-from .plots import plot_cv_loss
 from .config import ProtriderConfig
 
 
@@ -404,9 +403,6 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
     """
     Run PROTRIDER protein outlier detection.
     
-    Automatically dispatches to cross-validation or standard mode based on config.cross_val.
-    All inputs including data files are specified in the config.
-    
     Args:
         config: ProtriderConfig object with all configuration parameters including:
                 - input_intensities: File path (str)
@@ -418,50 +414,19 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
         Tuple of (Result, ModelInfo, FitParameters, GridSearchResult)
         - Result: Contains all output dataframes (residuals, p-values, z-scores, etc.)
         - ModelInfo: Contains model metadata (q, learning_rate, losses, etc.)
-                    For CV runs, includes df_folds with fold assignments
-    
+
     Examples:
-        >>> # Using file paths (file format: columns = samples, rows = proteins)
         >>> config = ProtriderConfig(
         ...     out_dir='output',
         ...     input_intensities='data.csv',  # Columns = samples
         ...     sample_annotation='annotations.csv',
-        ...     cross_val=False
         ... )
-        >>> result, model_info = run(config)
-        
-        >>> # With cross-validation
-        >>> config_cv = ProtriderConfig(
-        ...     out_dir='output',
-        ...     input_intensities='data.csv',
-        ...     cross_val=True,
-        ...     n_folds=5
-        ... )
-        >>> result, model_info = run(config_cv)
+        >>> result, model_info, fit_params, gs_result = run(config)
     """
-    logger.info('Running PROTRIDER in standard mode')
-    return _run_protrider_standard(config, config.input_intensities, config.sample_annotation)
+    logger.info('Running PROTRIDER')
+    input_intensities = config.input_intensities
+    sample_annotation = config.sample_annotation
 
-
-def _run_protrider_standard(
-    config: ProtriderConfig,
-    input_intensities: Union[str, pd.DataFrame],
-    sample_annotation: Union[str, pd.DataFrame, None]
-) -> Tuple[Result, ModelInfo, FitParameters, GridSearchResult]:
-    """
-    Perform protein outlier detection in a single run (internal function).
-    
-    Args:
-        config: ProtriderConfig object with all configuration parameters
-        input_intensities: Protein intensities as file path or pandas DataFrame
-                          - File: columns = samples, rows = proteins
-                          - DataFrame: rows = samples, columns = proteins
-        sample_annotation: Sample annotations as file path, DataFrame, or None
-                          - Format: rows = samples
-
-    Returns:
-        Tuple of (Result, ModelInfo)
-    """
     # 1. Initialize dataset
     logger.info('Initializing dataset')
     dataset = ProtriderDataset(input_intensities=input_intensities,
@@ -604,7 +569,7 @@ def _run_protrider_standard(
                              base_fn=config.base_fn, pval_dist=config.pval_dist)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
-                           train_losses=np.array(train_losses), df_folds=None)
+                           train_losses=np.array(train_losses))
     return result, model_info, fit_params, gs_result
 
 

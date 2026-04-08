@@ -139,7 +139,7 @@ def test_custom_checkpoint_path(temp_output_dir):
         find_q_method='5'
     )
     
-    result1, model_info1 = run(config1)
+    result1, model_info1, *_ = run(config1)
     
     # Verify checkpoint was saved
     assert checkpoint_path.exists(), "Checkpoint should be saved at custom path"
@@ -155,7 +155,7 @@ def test_custom_checkpoint_path(temp_output_dir):
         find_q_method='5'
     )
     
-    result2, model_info2 = run(config2)
+    result2, model_info2, *_ = run(config2)
     
     # Verify model was loaded
     assert model_info1.q == model_info2.q, "Latent dimension should match"
@@ -174,14 +174,14 @@ def test_default_checkpoint_behavior(temp_output_dir):
         find_q_method='5'
     )
     
-    result1, model_info1 = run(config1)
+    result1, model_info1, *_ = run(config1)
     
     # Verify default checkpoint was saved
     default_checkpoint = Path(temp_output_dir) / 'model.pt'
     assert default_checkpoint.exists(), "Default checkpoint should be saved"
     
     # Second run: auto-load from default location
-    result2, model_info2 = run(config1)
+    result2, model_info2, *_ = run(config1)
     assert model_info1.q == model_info2.q, "Should load from default location"
 
 

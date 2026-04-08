@@ -68,8 +68,8 @@ device: 'gpu'
 # If None: saves to out_dir/model.pt (or model_fold_N.pt for CV)
 # If specified and exists: loads model from this path and skips training
 # If specified and doesn't exist: trains and saves to this path
-# checkpoint_path: 'checkpoint.pt'
+checkpoint_path: 'checkpoint.pt'
 
 use_wandb: False
-wandb_project: 'protrider_test'
-wandb_name: 'test_run'
+# wandb_project: 'protrider_test'
+# wandb_name: 'test_run'

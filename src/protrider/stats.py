@@ -45,10 +45,10 @@ def fit_residuals(res, dis='gaussian', n_jobs=-1, use_common_df=True):
 
 def get_pvals(res, fit_params: FitParameters, how='two-sided', dis='gaussian', n_jobs=-1):
     hows = ('two-sided', 'left', 'right')
-    if not how in hows:
+    if how not in hows:
         raise ValueError(f'Method should be in <{hows}>')
     dists = ('gaussian', 't')
-    if not dis in dists:
+    if dis not in dists:
         raise ValueError(f'Distribution should be in <{dists}>')
 
     if dis == 'gaussian':
@@ -72,7 +72,7 @@ def _get_pv_norm(res, mu, sigma, how='two-sided'):
     z = (res - mu) / sigma  #
 
     hows = ('two-sided', 'left', 'right')
-    if not how in hows:
+    if how not in hows:
         raise ValueError(f'Method should be in <{hows}>')
 
     if how in ('left', 'two-sided'):
@@ -103,7 +103,7 @@ def _get_pv_t_base(x, mu, sigma, df, how='two-sided'):
             - 'df': Fitted degrees of freedom.
     """
     hows = ('two-sided', 'left', 'right')
-    if not how in hows:
+    if how not in hows:
         raise ValueError(f'Method should be in <{hows}>')
 
     # For df smaller than 2 the variance is not defined. 

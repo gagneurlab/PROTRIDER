@@ -1,6 +1,4 @@
 import copy
-from typing import Optional
-
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -21,8 +19,7 @@ class ModelInfo:
     n_epochs: np.array
     test_loss: np.array
     train_losses: np.array
-    df_folds: Optional[pd.DataFrame] = None  # DataFrame with fold assignments (for CV runs)
-    
+
     def save(self, out_dir: str) -> None:
         """
         Save model information to CSV files.
@@ -31,31 +28,17 @@ class ModelInfo:
             out_dir: Output directory path
         """
         import pandas as pd
-        import dataclasses
         from pathlib import Path
         
         logger.info('=== Saving model info ===')
         
         out_dir = Path(out_dir)
-        model_info_dict = dataclasses.asdict(self)
-        
-        # Remove df_folds from model_info_dict to handle separately
-        df_folds = model_info_dict.pop("df_folds", None)
-        
-        if self.q.ndim == 0:
-            # make all variables of model_info arrays
-            model_info_dict = {k: np.array([v]) for k, v in model_info_dict.items()}
 
-        folds = np.arange(len(model_info_dict['q']))
-        
-        # Remove train_losses from dict (handled separately for non-CV runs)
-        train_losses = model_info_dict.pop("train_losses")
-        
-        # Save training losses separately if not doing CV
-        if df_folds is None and len(train_losses) > 0:
+        train_losses = np.asarray(self.train_losses).flatten()
+        if len(train_losses) > 0:
             train_losses_df = pd.DataFrame({
-                'epoch': range(1, len(train_losses[0]) + 1),
-                'train_loss': train_losses[0],
+                'epoch': range(1, len(train_losses) + 1),
+                'train_loss': train_losses,
             })
             out_p = out_dir / 'train_losses.csv'
             train_losses_df.to_csv(out_p, header=True, index=False)
@@ -63,16 +46,15 @@ class ModelInfo:
 
         # Save additional info
         out_p = out_dir / 'additional_info.csv'
-        df_info = pd.DataFrame(model_info_dict, index=pd.Index(folds, name='fold'))
-        df_info.to_csv(out_p, header=True, index=True)
+        df_info = pd.DataFrame({
+            'q': [self.q.item() if hasattr(self.q, 'item') else self.q],
+            'learning_rate': [self.learning_rate.item() if hasattr(self.learning_rate, 'item') else self.learning_rate],
+            'n_epochs': [self.n_epochs.item() if hasattr(self.n_epochs, 'item') else self.n_epochs],
+            'test_loss': [self.test_loss.item() if hasattr(self.test_loss, 'item') else self.test_loss],
+        })
+        df_info.to_csv(out_p, header=True, index=False)
         logger.info(f"Saved additional info to {out_p}")
 
-        # Save folds if provided
-        if df_folds is not None:
-            out_p = out_dir / 'folds.csv'
-            df_folds.to_csv(out_p, header=True, index=True)
-            logger.info(f"Saved folds to {out_p}")
-    
     def plot_training_loss(self, out_dir: str = None, **kwargs):
         """
         Plot training loss history.
@@ -244,61 +226,6 @@ class MSEBCELoss(nn.Module):
             loss = mse_loss
 
         return loss, mse_loss, bce_loss
-
-
-def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
-              batch_size=None, patience=100, min_delta=0.001, wandb=None, wandb_prefix=''):
-    # start data;pader
-    if batch_size is None:
-        batch_size = train_subset.X.shape[0]
-    data_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=patience // 2)
-
-    min_val_loss = np.inf
-    best_model_wts = copy.deepcopy(model.state_dict())
-    early_stopping_counter = 0
-    early_stopping_epoch = 0
-
-    train_losses = []
-    val_losses = []
-    for epoch in tqdm(range(n_epochs)):
-        train_loss, train_mse_loss, train_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
-        if epoch % val_every_nepochs == 0:
-            train_losses.append(train_loss)
-            x_hat_val = model(val_subset.X, val_subset.torch_mask, cond=val_subset.covariates)
-            val_loss, val_mse_loss, val_bce_loss = criterion(x_hat_val, val_subset.X, val_subset.torch_mask)
-            
-            scheduler.step(val_loss)
-
-            val_losses.append(val_loss.detach().cpu().numpy())
-            logger.debug('[%d] train loss: %.6f' % (epoch + 1, train_loss))
-            logger.debug('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
-            if wandb is not None:
-                wandb.log({
-                    f'{wandb_prefix}train_loss': train_loss,
-                    f'{wandb_prefix}train_mse_loss': train_mse_loss,
-                    f'{wandb_prefix}train_bce_loss': train_bce_loss,
-                    f'{wandb_prefix}epoch': epoch,
-                    f'{wandb_prefix}val_loss': val_loss,
-                    f'{wandb_prefix}val_mse_loss': val_mse_loss,
-                    f'{wandb_prefix}val_bce_loss': val_bce_loss
-                })
-            if min_val_loss - val_loss > min_delta:
-                min_val_loss = val_loss
-                best_model_wts = copy.deepcopy(model.state_dict())
-                early_stopping_counter = 0
-                early_stopping_epoch = epoch + 1
-            else:
-                early_stopping_counter += 1
-                if early_stopping_counter >= patience:
-                    logger.info(f"\tEarly stopping at epoch {epoch + 1}")
-                    break
-
-    logger.info('\tRestoring model weights from epoch %s', early_stopping_epoch)
-    model.load_state_dict(best_model_wts)
-    # make losses a 2d array
-    return np.array(train_losses), np.array(val_losses)
 
 
 def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None, patience=50, min_delta=1e-4):
