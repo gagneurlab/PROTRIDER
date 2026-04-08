@@ -56,7 +56,7 @@ To run PROTRIDER, a configuration file needs to be provided. This can be adapted
 
 ### Model Checkpointing
 
-PROTRIDER automatically saves trained models and reuses them in subsequent runs, skipping training if a checkpoint exists. By default, models are saved to `<out_dir>/model.pt` (or `model_fold_N.pt` for cross-validation).
+PROTRIDER automatically saves trained models and reuses them in subsequent runs, skipping training if a checkpoint exists. By default, models are saved to `<out_dir>/model.pt`.
 
 To use a custom checkpoint location, set `checkpoint_path` in your config:
 
