@@ -86,6 +86,25 @@ class TestPipelineOutputConsistency:
             assert len(result.df_pvals.columns) <= len(protein_df.index)
 
 
+class TestPipelineNoOutDir:
+    """Test pipeline runs without out_dir or checkpoint_path."""
+
+    def test_no_out_dir_no_checkpoint(self, protein_intensities_path, protein_intensities_index_col):
+        """Pipeline should complete in-memory when both out_dir and checkpoint_path are None."""
+        config = ProtriderConfig(
+            input_intensities=str(protein_intensities_path),
+            index_col=protein_intensities_index_col,
+            out_dir=None,
+            checkpoint_path=None,
+            n_epochs=2,
+            find_q_method='5',
+            verbose=False,
+        )
+        result, model_info, *_ = run(config)
+        assert isinstance(result, Result)
+        assert isinstance(model_info, ModelInfo)
+
+
 class TestPipelineEdgeCases:
     """Test class for edge cases and robustness."""
     

@@ -444,8 +444,10 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
     # Use custom checkpoint path if specified, otherwise default to out_dir/model.pt
     if config.checkpoint_path:
         checkpoint_path = Path(config.checkpoint_path)
-    else:
+    elif config.out_dir:
         checkpoint_path = Path(config.out_dir) / 'model.pt'
+    else:
+        checkpoint_path = None
     
     if checkpoint_path and checkpoint_path.exists():
         logger.info(f'Attempting to load model from {checkpoint_path}')
