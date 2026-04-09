@@ -1,6 +1,7 @@
 # PROTRIDER
 
 [![Tests](https://github.com/gagneurlab/PROTRIDER/actions/workflows/tests.yml/badge.svg)](https://github.com/gagneurlab/PROTRIDER/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/protrider)](https://pypi.org/project/protrider/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
@@ -26,7 +27,8 @@ Have a look at our [paper](https://doi.org/10.1093/bioinformatics/btaf628) for i
 
 ```bash
 # 1. Install
-pip install .
+pip install protrider
+
 
 # 2. Run on the included sample data
 protrider run --config config.yaml
@@ -44,7 +46,7 @@ PROTRIDER was tested using Python 3.14 on Linux. We recommend a dedicated conda 
 ```bash
 conda create --name protrider_env python=3.14
 conda activate protrider_env
-pip install .
+pip install protrider
 ```
 
 Verify the installation:
