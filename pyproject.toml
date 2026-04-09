@@ -4,31 +4,39 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "protrider"
-version='0.9'
+dynamic = ["version"]
 description = "PROTRIDER - Protein outlier detection method"
 authors = [
     { name = "Daniela Klaproth-Andrade", email = "daniela.andrade@tum.de"},
     { name = "Ines Scheller"},
-    { name = "Ata Jadid Ahari"},
     { name = "George Tsitsiridis"},
+    { name = "Christian Mertes"},
+    { name = "Vicente A Yépez"},
+    { name = "Ata Jadid Ahari"},
+    { name = "Julien Gagneur", email = "gagneur@in.tum.de"},
 ]
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "" }
-keywords = ["olink", "tools", "ukb", "outliers"]
+license = { file = "LICENSE" }
+keywords = ["proteomics", "mass spectrometry", "outlier detection", "autoencoder", "bioinformatics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     'click',
     'numpy',
     'pandas',
     'pyaml',
-    'pathlib',
     'torch',
     'tqdm',
     'optht',
     'pydeseq2',
     'scipy',
     'scikit-learn',
-    'pathlib',
     'seaborn',
     'plotnine',
     'pyarrow',
@@ -37,9 +45,13 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/gagneurlab/PROTRIDER"
+"Bug Tracker" = "https://github.com/gagneurlab/PROTRIDER/issues"
+Publication = "https://doi.org/10.1093/bioinformatics/btaf628"
 
 [project.scripts]
 protrider = "protrider.cli:cli"
+
+[tool.setuptools_scm]
 
 [dependency-groups]
 dev = [

@@ -1,23 +1,28 @@
 # PROTRIDER
 
+[![Tests](https://github.com/gagneurlab/PROTRIDER/actions/workflows/tests.yml/badge.svg)](https://github.com/gagneurlab/PROTRIDER/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+
 PROTRIDER is an autoencoder-based method to call protein outliers from mass spectrometry-based proteomics datasets.
 
 Have a look at our [paper](https://doi.org/10.1093/bioinformatics/btaf628) for information about our work.
 
-## Table of Contents
+<details open>
+<summary><b>Table of Contents</b></summary>
 
-- [Quickstart](#quickstart)
-- [Installation](#installation)
-- [Usage](#usage)
-  - [Input files](#input-files)
-  - [Configuration file](#configuration-file)
-  - [Running from the command line](#running-protrider-from-the-command-line)
-  - [Output files](#output-files)
-  - [Model checkpointing](#model-checkpointing)
-  - [Using as a Python package](#using-protrider-as-a-python-package)
-- [Citation](#citation)
+- [🚀 Quickstart](#-quickstart)
+- [⚙️ Installation](#️-installation)
+- [📖 Usage](#-usage)
+  - [🗂️ Configuration](#️-configuration)
+  - [📤 Output](#-output)
+  - [▶️ Run](#️-run)
+- [📄 License](#-license)
+- [📚 Citation](#-citation)
 
-## Quickstart
+</details>
+
+## 🚀 Quickstart
 
 ```bash
 # 1. Install
@@ -32,24 +37,13 @@ protrider plot --config config.yaml all
 
 Results are written to the directory specified by `out_dir` in `config.yaml` (default: `output/`). The key output file is `protrider_summary.csv`, which contains outlier calls with p-values, z-scores, and fold changes for every sample–protein pair.
 
-## Installation
+## ⚙️ Installation
 
-### Prerequisites
-
-PROTRIDER was trained and tested using Python 3.14 on a Linux system. We recommend installing and running PROTRIDER in a dedicated conda environment:
+PROTRIDER was tested using Python 3.14 on Linux. We recommend a dedicated conda environment:
 
 ```bash
 conda create --name protrider_env python=3.14
 conda activate protrider_env
-```
-
-More information on conda environments can be found in [Conda's user guide](https://docs.conda.io/projects/conda/en/latest/user-guide/).
-
-### Install
-
-Run the following command inside the root directory:
-
-```bash
 pip install .
 ```
 
@@ -59,22 +53,23 @@ Verify the installation:
 protrider --help
 ```
 
-## Usage
+More information on conda environments can be found in [Conda's user guide](https://docs.conda.io/projects/conda/en/latest/user-guide/).
 
-### Input files
+## 📖 Usage
 
-- **Protein intensities**: CSV, TSV, or Parquet file
-  - Columns represent **samples**, rows represent **proteins**
-  - Example: `sample_data/protrider_sample_dataset.tsv`
-- **Sample annotation** (optional): CSV or tab-separated file containing known covariates
-  - Each row represents one sample
-  - Example: `sample_data/sample_annotations.tsv`
+### 🗂️ Configuration
+
+All parameters are set in a YAML configuration file. A template is provided as `config.yaml`.
+
+Input files are specified in the config:
+
+- **`input_intensities`**: CSV, TSV, or Parquet file with protein intensities (columns = samples, rows = proteins)
+- **`sample_annotation`** (optional): CSV or TSV file with sample covariates (one row per sample)
 
 An example dataset is included under `sample_data/`.
 
-### Configuration file
-
-All parameters are set in a YAML configuration file. A template is provided as `config.yaml`. Key options:
+<details open>
+<summary><b>Configuration parameters</b></summary>
 
 | Parameter | Description |
 |-----------|-------------|
@@ -88,31 +83,14 @@ All parameters are set in a YAML configuration file. A template is provided as `
 | `n_epochs` | Number of training epochs (default: `100`) |
 | `checkpoint_path` | Path to save/load model checkpoint (optional) |
 
-### Running PROTRIDER from the command line
+</details>
 
-**Run the pipeline:**
+### 📤 Output
 
-```bash
-protrider run --config config.yaml
-```
+The key output file is `protrider_summary.csv`, which contains outlier calls with p-values, z-scores, and fold changes for every sample–protein pair.
 
-**Generate plots:**
-
-```bash
-# All plots
-protrider plot --config config.yaml all
-
-# Individual plot types
-protrider plot --config config.yaml pvals
-protrider plot --config config.yaml aberrant_per_sample
-protrider plot --config config.yaml training_loss
-protrider plot --config config.yaml encoding_dim
-
-# Expected vs observed for a specific protein
-protrider plot --config config.yaml expected_vs_observed --protein_id <protein_id>
-```
-
-### Output files
+<details>
+<summary><b>Output files</b></summary>
 
 | File | Description |
 |------|-------------|
@@ -131,7 +109,34 @@ protrider plot --config config.yaml expected_vs_observed --protein_id <protein_i
 | `fit_parameters.csv` | Per-protein distribution fit parameters |
 | `config.yaml` | Saved configuration for reproducibility |
 
-### Model checkpointing
+</details>
+
+### ▶️ Run
+
+Run the pipeline:
+
+```bash
+protrider run --config config.yaml
+```
+
+Generate plots:
+
+```bash
+# All plots
+protrider plot --config config.yaml all
+
+# Individual plot types
+protrider plot --config config.yaml pvals
+protrider plot --config config.yaml aberrant_per_sample
+protrider plot --config config.yaml training_loss
+protrider plot --config config.yaml encoding_dim
+
+# Expected vs observed for a specific protein
+protrider plot --config config.yaml expected_vs_observed --protein_id <protein_id>
+```
+
+<details>
+<summary><b>Model checkpointing</b></summary>
 
 PROTRIDER automatically saves trained models and reuses them in subsequent runs, skipping retraining if a checkpoint exists. By default the model is saved to `<out_dir>/model.pt`.
 
@@ -143,7 +148,10 @@ checkpoint_path: models/my_model.pt
 
 To force retraining, delete the checkpoint file or point to a new path.
 
-### Using PROTRIDER as a Python package
+</details>
+
+<details>
+<summary><b>Python API</b></summary>
 
 ```python
 import protrider
@@ -181,7 +189,13 @@ result.log2fc          # log2 fold changes
 result.fc              # fold changes
 ```
 
-## Citation
+</details>
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+## 📚 Citation
 
 If you use PROTRIDER, please cite:
 
