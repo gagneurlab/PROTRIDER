@@ -29,7 +29,6 @@ Have a look at our [paper](https://doi.org/10.1093/bioinformatics/btaf628) for i
 # 1. Install
 pip install protrider
 
-
 # 2. Run on the included sample data
 protrider run --config config.yaml
 
