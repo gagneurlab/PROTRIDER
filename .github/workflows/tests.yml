@@ -22,3 +22,8 @@ jobs:
 
       - name: Run tests
         run: uv run pytest tests/ -q
+
+      - name: Run CLI smoke test
+        run: |
+          uv run protrider run --config config.yaml
+          uv run protrider plot --config config.yaml all
