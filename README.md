@@ -76,6 +76,8 @@ An example dataset is included under `sample_data/`.
 |-----------|-------------|
 | `out_dir` | Output directory |
 | `input_intensities` | Path to protein intensities file |
+| `max_allowed_NAs_per_protein` | Maximum percentage of missing values per protein (default: `0.3`) |
+| `log_func_name` | Transformation funtion to apply to the data before model fitting: `log` (default), `log10`, `log2`, or `null` (if already log transformed) |
 | `sample_annotation` | Path to sample annotations file (optional) |
 | `index_col` | Column name containing protein IDs |
 | `cov_used` | List of covariate column names from the annotation file (optional) |
@@ -83,6 +85,7 @@ An example dataset is included under `sample_data/`.
 | `pval_dist` | Distribution for p-value calculation: `t` (default) or `gaussian` |
 | `n_epochs` | Number of training epochs (default: `100`) |
 | `checkpoint_path` | Path to save/load model checkpoint (optional) |
+
 
 </details>
 
