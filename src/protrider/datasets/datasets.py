@@ -10,7 +10,7 @@ from optht import optht
 import logging
 from .covariates import parse_covariates
 from .protein_intensities import read_protein_intensities, preprocess_protein_intensities
-from .genotypes import read_genotype_table, build_genotype_tensor
+from .genotypes import read_genotype_table, build_genotype_sparse
 
 logger = logging.getLogger(__name__)
 
@@ -114,17 +114,22 @@ class ProtriderDataset(Dataset, PCADataset):
         self.prot_means_torch = self.prot_means_torch.to(device)
         # self.presence = (~self.torch_mask).long()
 
-        ## pQTL genotype tensor (samples x proteins x K), aligned to self.data
-        self.geno_snp_map = None
+        ## Sparse pQTL genotype terms aligned to self.data:
+        ##   geno (S, M) dosage per (protein, snp) term, scattered into proteins by pidx
         self.geno_beta_init = None
+        self.geno_term_protein = None
+        self.geno_term_snp = None
         if genotype is not None:
             tab = read_genotype_table(genotype)
-            geno_np, self.geno_snp_map, self.geno_beta_init = build_genotype_tensor(
+            (geno_np, pidx, self.geno_beta_init,
+             self.geno_term_protein, self.geno_term_snp) = build_genotype_sparse(
                 tab, self.data.index, self.data.columns)
         else:
-            geno_np = np.zeros((self.data.shape[0], self.data.shape[1], 0), dtype=np.float64)
-        self.n_snps = geno_np.shape[2]
-        self.geno = torch.tensor(geno_np, dtype=torch.double).to(device)
+            geno_np = np.zeros((self.data.shape[0], 0), dtype=np.float64)
+            pidx = np.zeros(0, dtype=np.int64)
+        self.n_geno_terms = geno_np.shape[1]
+        self.geno = torch.tensor(geno_np, dtype=torch.double).to(device)              # (S, M)
+        self.geno_protein_index = torch.tensor(pidx, dtype=torch.long).to(device)     # (M,)
 
     def __len__(self):
         return len(self.X)
@@ -170,19 +175,20 @@ class ProtriderSubset(Subset, PCADataset):
 
     @property
     def geno(self):
+        # subset rows (samples); the per-term protein index is sample-independent
         return self.dataset.geno[self.indices]
 
     @property
-    def n_snps(self):
-        return self.dataset.n_snps
+    def n_geno_terms(self):
+        return self.dataset.n_geno_terms
+
+    @property
+    def geno_protein_index(self):
+        return self.dataset.geno_protein_index
 
     @property
     def geno_beta_init(self):
         return self.dataset.geno_beta_init
-
-    @property
-    def geno_snp_map(self):
-        return self.dataset.geno_snp_map
 
     @staticmethod
     def concat(subsets: Iterable['ProtriderSubset']):
@@ -207,7 +213,9 @@ class ProtriderSubset(Subset, PCADataset):
         dataset.prot_means = self.prot_means
         dataset.prot_means_torch = self.prot_means_torch
         dataset.geno = self.geno
-        dataset.n_snps = self.n_snps
+        dataset.n_geno_terms = self.n_geno_terms
+        dataset.geno_protein_index = self.geno_protein_index
         dataset.geno_beta_init = self.geno_beta_init
-        dataset.geno_snp_map = self.geno_snp_map
+        dataset.geno_term_protein = self.dataset.geno_term_protein
+        dataset.geno_term_snp = self.dataset.geno_term_snp
         return dataset

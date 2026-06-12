@@ -1,11 +1,20 @@
-"""Build a per-protein genotype tensor from a long-format pQTL genotype table.
+"""Build a sparse per-protein genotype representation from a long pQTL table.
 
-PROTRIDER stays dataset-agnostic: it consumes a long table keyed by sample, protein
-and SNP, and pivots it into a dense ``(n_samples, n_proteins, K)`` tensor aligned to the
-dataset's own sample index and (post-filtering) protein columns. ``K`` is the maximum
-number of cis-SNPs assigned to any single protein; proteins with fewer SNPs are
-zero-padded. The harmonisation of external SNP / sample / protein identifiers into this
-schema is left to dataset-specific preprocessing upstream.
+PROTRIDER stays dataset-agnostic: it consumes a long table keyed by sample, protein and
+SNP, and turns it into a **sparse** set of genetic terms rather than a dense
+``(n_samples, n_proteins, K)`` tensor. Each distinct ``(protein, snp)`` pair is one
+"term" with its own learnable effect; the per-protein genetic contribution is recovered
+in the model by scatter-adding term contributions back into protein columns. This avoids
+the K-padding (driven by the protein with the most SNPs) and the all-zero slices for
+proteins without any pQTL.
+
+The representation is:
+    geno  : float64 ``(S, M)`` dosage matrix, one column per term
+    pidx  : int64   ``(M,)``   protein-column index each term scatters into
+    beta  : float64 ``(M,)``   warm-start effect sizes (0 where absent)
+with ``M`` = number of distinct (protein, snp) associations matching the dataset.
+The harmonisation of external SNP / sample / protein identifiers into the long schema is
+left to dataset-specific preprocessing upstream.
 """
 from __future__ import annotations
 
@@ -34,19 +43,21 @@ def read_genotype_table(path: str) -> pd.DataFrame:
     return tab
 
 
-def build_genotype_tensor(tab: pd.DataFrame, samples, proteins):
-    """Pivot a long genotype table into a dense aligned tensor.
+def build_genotype_sparse(tab: pd.DataFrame, samples, proteins):
+    """Turn a long genotype table into a sparse list of (protein, snp) genetic terms.
 
     Args:
         tab: long table with columns ``sampleID, proteinID, snp_id, dosage`` and an
-            optional ``effect_size`` column used to warm-start the per-SNP effects.
+            optional ``effect_size`` column used to warm-start the per-term effects.
         samples: ordered sample index to align rows to (e.g. ``dataset.data.index``).
         proteins: ordered protein columns to align to (e.g. ``dataset.data.columns``).
 
     Returns:
-        geno: float64 array ``(S, P, K)``, zero-filled for absent (sample, protein, snp).
-        snp_map: object array ``(P, K)`` naming the SNP in each slot (``''`` if empty).
-        beta_init: float64 array ``(P, K)`` of warm-start effect sizes (0 where absent).
+        geno: float64 array ``(S, M)``, dosage of each term per sample (0 where absent).
+        pidx: int64 array ``(M,)``, the protein-column index each term belongs to.
+        beta_init: float64 array ``(M,)`` of warm-start effect sizes (0 where absent).
+        term_protein: object array ``(M,)`` naming the protein of each term.
+        term_snp: object array ``(M,)`` naming the SNP of each term.
     """
     samples = pd.Index(samples)
     proteins = pd.Index(proteins)
@@ -56,36 +67,30 @@ def build_genotype_tensor(tab: pd.DataFrame, samples, proteins):
 
     tab = tab[tab["proteinID"].isin(p_pos) & tab["sampleID"].isin(s_pos)]
 
-    snps_per_prot = tab.groupby("proteinID")["snp_id"].unique()
-    K = int(snps_per_prot.map(len).max()) if len(snps_per_prot) else 0
+    S = len(samples)
+    groups = list(tab.groupby(["proteinID", "snp_id"], sort=True))
+    M = len(groups)
 
-    S, P = len(samples), len(proteins)
-    geno = np.zeros((S, P, K), dtype=np.float64)
-    snp_map = np.empty((P, K), dtype=object)
-    snp_map[:] = ""
-    beta_init = np.zeros((P, K), dtype=np.float64)
-    if K == 0:
-        logger.warning("Genotype table has no entries matching the dataset's proteins/samples")
-        return geno, snp_map, beta_init
+    geno = np.zeros((S, M), dtype=np.float64)
+    pidx = np.zeros(M, dtype=np.int64)
+    beta_init = np.zeros(M, dtype=np.float64)
+    term_protein = np.empty(M, dtype=object)
+    term_snp = np.empty(M, dtype=object)
 
-    for prot, snp_ids in snps_per_prot.items():
-        pi = p_pos[prot]
-        snp_slot = {snp: k for k, snp in enumerate(snp_ids)}
-        for k, snp in enumerate(snp_ids):
-            snp_map[pi, k] = snp
-        sub = tab[tab["proteinID"] == prot]
+    for m, ((prot, snp), sub) in enumerate(groups):
+        pidx[m] = p_pos[prot]
         si = sub["sampleID"].map(s_pos).to_numpy()
-        ki = sub["snp_id"].map(snp_slot).to_numpy()
-        geno[si, pi, ki] = sub["dosage"].to_numpy(dtype=np.float64)
+        geno[si, m] = sub["dosage"].to_numpy(dtype=np.float64)
         if has_eff:
-            eff = sub.groupby("snp_id")["effect_size"].first()
-            for snp, k in snp_slot.items():
-                if snp in eff.index:
-                    beta_init[pi, k] = eff.loc[snp]
+            beta_init[m] = float(sub["effect_size"].iloc[0])
+        term_protein[m] = prot
+        term_snp[m] = snp
 
-    n_prot_with_snp = int((snp_map != "").any(axis=1).sum())
-    logger.info(
-        "Built genotype tensor: shape %s, K=%d, %d/%d proteins have >=1 cis-SNP%s",
-        geno.shape, K, n_prot_with_snp, P, " (effect-size warm-start)" if has_eff else "",
-    )
-    return geno, snp_map, beta_init
+    if M == 0:
+        logger.warning("Genotype table has no entries matching the dataset's proteins/samples")
+    else:
+        logger.info(
+            "Built sparse genotype: S=%d, M=%d (protein, snp) terms over %d proteins%s",
+            S, M, len(np.unique(pidx)), " (effect-size warm-start)" if has_eff else "",
+        )
+    return geno, pidx, beta_init, term_protein, term_snp

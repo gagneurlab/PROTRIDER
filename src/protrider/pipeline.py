@@ -34,7 +34,7 @@ def save_model(model: ProtriderAutoencoder, checkpoint_path: str, q: int) -> Non
         'q': q,
         'n_layers': model.n_layers,
         'presence_absence': model.presence_absence,
-        'n_snps': model.n_snps,
+        'n_geno_terms': model.n_geno_terms,
     }, checkpoint_path)
     
     logger.info(f'Saved model to {checkpoint_path}')
@@ -64,7 +64,7 @@ def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_pat
         q = checkpoint['q']
         n_layers = checkpoint['n_layers']
         presence_absence = checkpoint.get('presence_absence', False)
-        n_snps = checkpoint.get('n_snps', 0)
+        n_geno_terms = checkpoint.get('n_geno_terms', 0)
 
         logger.info(f'Loading model from {checkpoint_path} (q={q}, n_layers={n_layers})')
 
@@ -79,7 +79,8 @@ def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_pat
             n_cov=n_cov,
             prot_means=None,
             presence_absence=presence_absence,
-            n_snps=n_snps
+            n_geno_terms=n_geno_terms,
+            geno_protein_index=getattr(dataset, 'geno_protein_index', None)
         )
         model.double().to(config.device_torch)
         

@@ -174,12 +174,14 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, devic
                presence_absence=False):
     n_cov = dataset.covariates.shape[1]
     n_prots = dataset.X.shape[1]
-    n_snps = getattr(dataset, 'n_snps', 0)
+    n_geno_terms = getattr(dataset, 'n_geno_terms', 0)
     beta_init = getattr(dataset, 'geno_beta_init', None)
+    geno_protein_index = getattr(dataset, 'geno_protein_index', None)
     model = ProtriderAutoencoder(in_dim=n_prots, latent_dim=latent_dim, n_layers=n_layer, h_dim=h_dim, n_cov=n_cov,
                                  prot_means=None if init_wPCA else dataset.prot_means_torch,
                                  presence_absence=presence_absence,
-                                 n_snps=n_snps, beta_init=beta_init)
+                                 n_geno_terms=n_geno_terms, beta_init=beta_init,
+                                 geno_protein_index=geno_protein_index)
     model.double().to(device)
     if init_wPCA:
         logger.info('\tInitializing model weights with PCA')

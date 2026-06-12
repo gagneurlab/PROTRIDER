@@ -136,21 +136,30 @@ class ConditionalEnDecoder(nn.Module):
 class ProtriderAutoencoder(nn.Module):
     def __init__(self, in_dim, latent_dim, n_layers=1, n_cov=0, h_dim=None,
                  prot_means=None, presence_absence=False,
-                 n_snps=0, beta_init=None):
+                 n_geno_terms=0, beta_init=None, geno_protein_index=None):
         super().__init__()
         self.n_layers = n_layers
         self.presence_absence = presence_absence
+        self.in_dim = in_dim
 
-        # Per-protein additive pQTL genetic term: g[s,p] = sum_k geno[s,p,k] * beta[p,k].
-        # Subtracted from the encoder input (so the latent is formed on genetics-removed
-        # data, mirroring prot_means) and added back to the reconstruction, so residuals
-        # are corrected for known common cis-pQTL effects. n_snps=0 disables it entirely.
-        self.n_snps = int(n_snps)
-        if self.n_snps > 0:
-            w = torch.zeros(in_dim, self.n_snps, dtype=torch.double)
+        # Additive pQTL genetic term, stored sparsely as M = n_geno_terms (protein, snp)
+        # associations. Each term m has a learnable effect beta[m] and scatters into its
+        # protein column (geno_protein_index[m]); the per-protein contribution is
+        #   g[s,p] = sum_{m: pidx[m]=p} geno[s,m] * beta[m].
+        # g is subtracted from the encoder input (latent formed on genetics-removed data,
+        # mirroring prot_means) and added back to the reconstruction, so residuals are
+        # corrected for known common cis-pQTL effects. n_geno_terms=0 disables it.
+        self.n_geno_terms = int(n_geno_terms)
+        if self.n_geno_terms > 0:
+            w = torch.zeros(self.n_geno_terms, dtype=torch.double)
             if beta_init is not None:
                 w.copy_(torch.as_tensor(np.asarray(beta_init), dtype=torch.double))
             self.snp_effects = nn.Parameter(w)
+            if geno_protein_index is None:
+                geno_protein_index = torch.zeros(self.n_geno_terms, dtype=torch.long)
+            # registered as a buffer so it is saved/restored with the checkpoint
+            self.register_buffer('geno_protein_index',
+                                 torch.as_tensor(geno_protein_index, dtype=torch.long))
 
         self.encoder = ConditionalEnDecoder(in_dim=in_dim + n_cov,
                                             out_dim=latent_dim, h_dim=h_dim, n_layers=n_layers,
@@ -162,10 +171,16 @@ class ProtriderAutoencoder(nn.Module):
                                             is_encoder=False, prot_means=prot_means)
 
     def _genetic_term(self, geno):
-        """Per-protein genetic contribution g[s,p] = sum_k geno[s,p,k]*beta[p,k] or None."""
-        if geno is None or self.n_snps == 0 or geno.shape[-1] == 0:
+        """Per-protein genetic contribution g[s,p]=sum_{m:pidx[m]=p} geno[s,m]*beta[m] or None.
+
+        geno is the sparse ``(S, M)`` per-term dosage matrix; terms are scatter-added into
+        their protein columns via geno_protein_index.
+        """
+        if geno is None or self.n_geno_terms == 0 or geno.shape[-1] == 0:
             return None
-        return torch.einsum('spk,pk->sp', geno, self.snp_effects)
+        weighted = geno * self.snp_effects                                  # (S, M)
+        g = torch.zeros(geno.shape[0], self.in_dim, dtype=geno.dtype, device=geno.device)
+        return g.index_add(1, self.geno_protein_index, weighted)           # (S, P)
 
     def forward(self, x, mask, cond=None, geno=None):
         g = self._genetic_term(geno)
