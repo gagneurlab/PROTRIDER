@@ -34,6 +34,7 @@ def save_model(model: ProtriderAutoencoder, checkpoint_path: str, q: int) -> Non
         'q': q,
         'n_layers': model.n_layers,
         'presence_absence': model.presence_absence,
+        'n_snps': model.n_snps,
     }, checkpoint_path)
     
     logger.info(f'Saved model to {checkpoint_path}')
@@ -63,20 +64,22 @@ def load_model(dataset: Union[ProtriderDataset, ProtriderSubset], checkpoint_pat
         q = checkpoint['q']
         n_layers = checkpoint['n_layers']
         presence_absence = checkpoint.get('presence_absence', False)
-        
+        n_snps = checkpoint.get('n_snps', 0)
+
         logger.info(f'Loading model from {checkpoint_path} (q={q}, n_layers={n_layers})')
-        
+
         # Initialize model with saved architecture
         n_cov = dataset.covariates.shape[1]
         n_prots = dataset.X.shape[1]
         model = ProtriderAutoencoder(
-            in_dim=n_prots, 
-            latent_dim=q, 
-            n_layers=n_layers, 
-            h_dim=config.h_dim, 
+            in_dim=n_prots,
+            latent_dim=q,
+            n_layers=n_layers,
+            h_dim=config.h_dim,
             n_cov=n_cov,
             prot_means=None,
-            presence_absence=presence_absence
+            presence_absence=presence_absence,
+            n_snps=n_snps
         )
         model.double().to(config.device_torch)
         
@@ -437,7 +440,8 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
                                maxNA_filter=config.max_allowed_NAs_per_protein,
                                device=config.device_torch,
                                input_format=config.input_format,
-                               normalize=config.normalize)
+                               normalize=config.normalize,
+                               genotype=config.genotype)
 
     # 2. Determine checkpoint path and try to load existing model
     model = None
@@ -577,7 +581,8 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
 
 
 def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss):
-    X_out = model(dataset.X, dataset.torch_mask, cond=dataset.covariates)
+    X_out = model(dataset.X, dataset.torch_mask, cond=dataset.covariates,
+                  geno=getattr(dataset, 'geno', None))
 
     loss, mse_loss, bce_loss = criterion(
         X_out, dataset.X, dataset.torch_mask, detached=True)

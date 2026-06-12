@@ -10,6 +10,7 @@ from optht import optht
 import logging
 from .covariates import parse_covariates
 from .protein_intensities import read_protein_intensities, preprocess_protein_intensities
+from .genotypes import read_genotype_table, build_genotype_tensor
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,8 @@ class ProtriderDataset(Dataset, PCADataset):
                  sa_file: Optional[str] = None,
                  cov_used: Optional[list] = None, log_func: Callable = np.log,
                  maxNA_filter: float = 0.3, device: torch.device = torch.device('cpu'),
-                 input_format: str = "proteins_as_rows", normalize: bool = True):
+                 input_format: str = "proteins_as_rows", normalize: bool = True,
+                 genotype: Optional[str] = None):
         """Initialize ProtriderDataset.
         
         Args:
@@ -55,6 +57,12 @@ class ProtriderDataset(Dataset, PCADataset):
                          - "proteins_as_columns": samples are rows, proteins are columns
             normalize: Whether to apply DESeq2 size-factor normalization before
                       log transformation (default: True).
+            genotype: Optional path to a long-format pQTL genotype table with columns
+                     ``sampleID, proteinID, snp_id, dosage`` (optional ``effect_size``).
+                     When given, builds a per-protein genotype tensor ``geno`` of shape
+                     ``(n_samples, n_proteins, K)`` aligned to this dataset, used by the
+                     model's additive genetic term. When None, ``geno`` has K=0 and the
+                     model behaves as without genetic correction.
         """
         super().__init__()
         self.device = device
@@ -106,11 +114,24 @@ class ProtriderDataset(Dataset, PCADataset):
         self.prot_means_torch = self.prot_means_torch.to(device)
         # self.presence = (~self.torch_mask).long()
 
+        ## pQTL genotype tensor (samples x proteins x K), aligned to self.data
+        self.geno_snp_map = None
+        self.geno_beta_init = None
+        if genotype is not None:
+            tab = read_genotype_table(genotype)
+            geno_np, self.geno_snp_map, self.geno_beta_init = build_genotype_tensor(
+                tab, self.data.index, self.data.columns)
+        else:
+            geno_np = np.zeros((self.data.shape[0], self.data.shape[1], 0), dtype=np.float64)
+        self.n_snps = geno_np.shape[2]
+        self.geno = torch.tensor(geno_np, dtype=torch.double).to(device)
+
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return (self.X[idx], self.torch_mask[idx], self.covariates[idx], self.prot_means_torch)
+        return (self.X[idx], self.torch_mask[idx], self.covariates[idx],
+                self.prot_means_torch, self.geno[idx])
 
 
 class ProtriderSubset(Subset, PCADataset):
@@ -147,6 +168,22 @@ class ProtriderSubset(Subset, PCADataset):
     def covariates(self):
         return self.dataset.covariates[self.indices]
 
+    @property
+    def geno(self):
+        return self.dataset.geno[self.indices]
+
+    @property
+    def n_snps(self):
+        return self.dataset.n_snps
+
+    @property
+    def geno_beta_init(self):
+        return self.dataset.geno_beta_init
+
+    @property
+    def geno_snp_map(self):
+        return self.dataset.geno_snp_map
+
     @staticmethod
     def concat(subsets: Iterable['ProtriderSubset']):
         """
@@ -169,4 +206,8 @@ class ProtriderSubset(Subset, PCADataset):
         dataset.covariates = self.covariates
         dataset.prot_means = self.prot_means
         dataset.prot_means_torch = self.prot_means_torch
+        dataset.geno = self.geno
+        dataset.n_snps = self.n_snps
+        dataset.geno_beta_init = self.geno_beta_init
+        dataset.geno_snp_map = self.geno_snp_map
         return dataset

@@ -135,10 +135,23 @@ class ConditionalEnDecoder(nn.Module):
 
 class ProtriderAutoencoder(nn.Module):
     def __init__(self, in_dim, latent_dim, n_layers=1, n_cov=0, h_dim=None,
-                 prot_means=None, presence_absence=False):
+                 prot_means=None, presence_absence=False,
+                 n_snps=0, beta_init=None):
         super().__init__()
         self.n_layers = n_layers
         self.presence_absence = presence_absence
+
+        # Per-protein additive pQTL genetic term: g[s,p] = sum_k geno[s,p,k] * beta[p,k].
+        # Subtracted from the encoder input (so the latent is formed on genetics-removed
+        # data, mirroring prot_means) and added back to the reconstruction, so residuals
+        # are corrected for known common cis-pQTL effects. n_snps=0 disables it entirely.
+        self.n_snps = int(n_snps)
+        if self.n_snps > 0:
+            w = torch.zeros(in_dim, self.n_snps, dtype=torch.double)
+            if beta_init is not None:
+                w.copy_(torch.as_tensor(np.asarray(beta_init), dtype=torch.double))
+            self.snp_effects = nn.Parameter(w)
+
         self.encoder = ConditionalEnDecoder(in_dim=in_dim + n_cov,
                                             out_dim=latent_dim, h_dim=h_dim, n_layers=n_layers,
                                             is_encoder=True, prot_means=prot_means)
@@ -148,14 +161,27 @@ class ProtriderAutoencoder(nn.Module):
                                             h_dim=h_dim, n_layers=n_layers,
                                             is_encoder=False, prot_means=prot_means)
 
-    def forward(self, x, mask, cond=None):
+    def _genetic_term(self, geno):
+        """Per-protein genetic contribution g[s,p] = sum_k geno[s,p,k]*beta[p,k] or None."""
+        if geno is None or self.n_snps == 0 or geno.shape[-1] == 0:
+            return None
+        return torch.einsum('spk,pk->sp', geno, self.snp_effects)
+
+    def forward(self, x, mask, cond=None, geno=None):
+        g = self._genetic_term(geno)
+        x_in = x if g is None else x - g
+
         if self.presence_absence:
             presence = (~mask).double()
-            x = torch.stack([x, presence])
+            x_in = torch.stack([x_in, presence])
             cond = torch.stack([cond, cond])
 
-        z = self.encoder(x, cond=cond)
+        z = self.encoder(x_in, cond=cond)
         out = self.decoder(z, cond=cond)
+
+        if g is not None:
+            # add the genetic term back to the intensity reconstruction only
+            out = out + (torch.stack([g, torch.zeros_like(g)]) if self.presence_absence else g)
         return out
 
     def initialize_wPCA(self, Vt_q, prot_means, n_cov=0):
@@ -278,11 +304,11 @@ def _train_iteration(data_loader, model, criterion, optimizer):
 
     n_batches = 0
     for batch_idx, data in enumerate(data_loader):
-        x, mask, cov, prot_means = data
+        x, mask, cov, prot_means, geno = data
 
         # restore grads and compute model out
         optimizer.zero_grad()
-        x_hat = model(x, mask, cond=cov)
+        x_hat = model(x, mask, cond=cov, geno=geno)
 
         loss, mse_loss, bce_loss = criterion(x_hat, x, mask)
 

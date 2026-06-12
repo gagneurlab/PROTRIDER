@@ -55,7 +55,8 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
         model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device,
                             presence_absence=presence_absence)
         criterion = MSEBCELoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
-        X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.covariates)
+        X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.covariates,
+                      geno=injected_dataset.geno)
         loss, mse_loss, bce_loss = criterion(X_out, injected_dataset.X, injected_dataset.torch_mask, detached=True)
         logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s',
                     loss, mse_loss, bce_loss)
@@ -65,7 +66,8 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
         logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
                     loss, mse_loss, bce_loss)
         X_out = model(injected_dataset.X, injected_dataset.torch_mask,
-                        cond=injected_dataset.covariates).detach().cpu().numpy()
+                        cond=injected_dataset.covariates,
+                        geno=injected_dataset.geno).detach().cpu().numpy()
         if presence_absence:
             presence_out = X_out[1]
             X_out = X_out[0]
@@ -172,9 +174,12 @@ def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, devic
                presence_absence=False):
     n_cov = dataset.covariates.shape[1]
     n_prots = dataset.X.shape[1]
+    n_snps = getattr(dataset, 'n_snps', 0)
+    beta_init = getattr(dataset, 'geno_beta_init', None)
     model = ProtriderAutoencoder(in_dim=n_prots, latent_dim=latent_dim, n_layers=n_layer, h_dim=h_dim, n_cov=n_cov,
                                  prot_means=None if init_wPCA else dataset.prot_means_torch,
-                                 presence_absence=presence_absence)
+                                 presence_absence=presence_absence,
+                                 n_snps=n_snps, beta_init=beta_init)
     model.double().to(device)
     if init_wPCA:
         logger.info('\tInitializing model weights with PCA')

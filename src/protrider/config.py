@@ -40,6 +40,14 @@ class ProtriderConfig:
     
     # Covariates
     cov_used: Optional[List[str]] = None
+
+    # pQTL genotype correction
+    # Path to a long-format genotype table with columns:
+    #   sampleID, proteinID, snp_id, dosage   (optional: effect_size for beta warm-start)
+    # When set, a per-protein linear genetic term (sum_k dosage * beta) is subtracted from
+    # the encoder input and added to the reconstruction, so residuals are corrected for
+    # known common cis-pQTL effects. None disables it.
+    genotype: Optional[str] = None
     
     # Reproducibility
     seed: Optional[int] = 42
