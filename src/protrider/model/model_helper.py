@@ -39,7 +39,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     common_degrees_freedom=True,
                     out_dir=None, device=torch.device('cpu'),
                     presence_absence=False, lambda_bce=1., n_jobs=-1,
-                    patience=50, min_delta=1e-4
+                    patience=50, min_delta=1e-4, geno_l2=0.0
                     ) -> tuple[int, GridSearchResult]:
     dataset.perform_svd()
     q = dataset.find_enc_dim_optht()
@@ -62,7 +62,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
                     loss, mse_loss, bce_loss)
 
         logger.info('\tFitting model')
-        loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size, patience=patience, min_delta=min_delta)
+        loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size, patience=patience, min_delta=min_delta, geno_l2=geno_l2)
         logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
                     loss, mse_loss, bce_loss)
         X_out = model(injected_dataset.X, injected_dataset.torch_mask,

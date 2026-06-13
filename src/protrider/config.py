@@ -48,6 +48,10 @@ class ProtriderConfig:
     # the encoder input and added to the reconstruction, so residuals are corrected for
     # known common cis-pQTL effects. None disables it.
     genotype: Optional[str] = None
+    # Shrink-to-prior L2 penalty weight on the genetic effects beta (towards the warm-start
+    # effect sizes, or 0). Stops weak/collinear pQTL terms from overfitting and absorbing
+    # rare-outlier signal. 0 = no penalty (free beta).
+    geno_l2: float = 0.0
     
     # Reproducibility
     seed: Optional[int] = 42
@@ -118,6 +122,9 @@ class ProtriderConfig:
         
         if self.outlier_threshold < 0 or self.outlier_threshold > 1:
             raise ValueError("outlier_threshold must be between 0 and 1")
+
+        if self.geno_l2 < 0:
+            raise ValueError("geno_l2 must be non-negative")
         
         if self.find_q_method not in ["OHT", "gs", "bs"] and not self.find_q_method.isdigit():
             raise ValueError("find_q_method must be 'OHT', 'gs', 'bs' or an integer string")

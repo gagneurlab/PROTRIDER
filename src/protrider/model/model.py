@@ -155,6 +155,9 @@ class ProtriderAutoencoder(nn.Module):
             if beta_init is not None:
                 w.copy_(torch.as_tensor(np.asarray(beta_init), dtype=torch.double))
             self.snp_effects = nn.Parameter(w)
+            # prior beta0 (the warm-start effect sizes, or 0) that the L2 penalty shrinks
+            # towards. Kept as a buffer so it is saved/restored with the checkpoint.
+            self.register_buffer('snp_effects_prior', w.detach().clone())
             if geno_protein_index is None:
                 geno_protein_index = torch.zeros(self.n_geno_terms, dtype=torch.long)
             # registered as a buffer so it is saved/restored with the checkpoint
@@ -169,6 +172,17 @@ class ProtriderAutoencoder(nn.Module):
                                             out_dim=in_dim,
                                             h_dim=h_dim, n_layers=n_layers,
                                             is_encoder=False, prot_means=prot_means)
+
+    def genetic_l2(self):
+        """Shrink-to-prior L2 penalty sum((beta - beta0)**2), or None if no genetic term.
+
+        beta0 is the warm-start effect prior (snp_effects_prior). Added to the training
+        loss (weighted by geno_l2) so weak/collinear terms are pulled back to the prior
+        and cannot soak up rare-outlier signal; strong, well-supported effects survive.
+        """
+        if self.n_geno_terms == 0:
+            return None
+        return ((self.snp_effects - self.snp_effects_prior) ** 2).sum()
 
     def _genetic_term(self, geno):
         """Per-protein genetic contribution g[s,p]=sum_{m:pidx[m]=p} geno[s,m]*beta[m] or None.
@@ -269,7 +283,7 @@ class MSEBCELoss(nn.Module):
         return loss, mse_loss, bce_loss
 
 
-def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None, patience=50, min_delta=1e-4):
+def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None, patience=50, min_delta=1e-4, geno_l2=0.0):
     # start data;pader
     if batch_size is None:
         batch_size = dataset.X.shape[0]
@@ -285,7 +299,7 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
     best_model_wts = copy.deepcopy(model.state_dict())
     early_stopping_epoch = 0
     for epoch in tqdm(range(n_epochs)):
-        running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
+        running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer, geno_l2=geno_l2)
         scheduler.step(running_loss)
         logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
                                                                           running_mse_loss, running_bce_loss))
@@ -312,7 +326,7 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
     return running_loss, running_mse_loss, running_bce_loss, train_losses
 
 
-def _train_iteration(data_loader, model, criterion, optimizer):
+def _train_iteration(data_loader, model, criterion, optimizer, geno_l2=0.0):
     running_loss = 0.0
     running_mse_loss = 0.0
     running_bce_loss = 0.0
@@ -326,6 +340,10 @@ def _train_iteration(data_loader, model, criterion, optimizer):
         x_hat = model(x, mask, cond=cov, geno=geno)
 
         loss, mse_loss, bce_loss = criterion(x_hat, x, mask)
+
+        # shrink-to-prior L2 penalty on the genetic effects (beta -> beta0)
+        if geno_l2 > 0 and model.n_geno_terms > 0:
+            loss = loss + geno_l2 * model.genetic_l2()
 
         # Adjust learning weights
         loss.backward()

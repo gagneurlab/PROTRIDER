@@ -483,7 +483,8 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
                             common_degrees_freedom=config.common_degrees_freedom,
                             n_jobs=config.n_jobs,
                             patience=config.patience,
-                            min_delta=config.min_delta
+                            min_delta=config.min_delta,
+                            geno_l2=config.geno_l2
                             )
 
         logger.info(
@@ -537,7 +538,8 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
 
         logger.info('Fitting model')
         _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config.n_epochs, learning_rate=float(config.lr),
-                                      batch_size=config.batch_size, wandb=wandb, patience=config.patience, min_delta=config.min_delta)
+                                      batch_size=config.batch_size, wandb=wandb, patience=config.patience, min_delta=config.min_delta,
+                                      geno_l2=config.geno_l2)
         df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(
             dataset, model, criterion)
         logger.info('Final loss: %s, mse loss: %s, bce loss: %s',

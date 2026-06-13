@@ -15,8 +15,10 @@ import pandas as pd
 import pytest
 import torch
 
+import copy
+
 from protrider.datasets import ProtriderDataset
-from protrider.model import ProtriderAutoencoder
+from protrider.model import ProtriderAutoencoder, MSEBCELoss, train
 from protrider.pipeline import save_model, load_model
 from protrider import ProtriderConfig
 
@@ -142,6 +144,50 @@ def test_genetic_term_has_gradient(synthetic_genotype_file):
     model(ds.X, ds.torch_mask, cond=ds.covariates, geno=ds.geno).sum().backward()
     assert model.snp_effects.grad is not None
     assert torch.isfinite(model.snp_effects.grad).all()
+
+
+def test_genetic_l2_matches_formula(synthetic_genotype_file):
+    path, _, _ = synthetic_genotype_file
+    ds = _make_dataset(genotype=path)
+    model = ProtriderAutoencoder(
+        in_dim=ds.X.shape[1], latent_dim=4, n_layers=1, n_cov=ds.covariates.shape[1],
+        prot_means=ds.prot_means_torch, n_geno_terms=ds.n_geno_terms,
+        beta_init=ds.geno_beta_init, geno_protein_index=ds.geno_protein_index,
+    ).double()
+    # prior buffer equals the warm-start effect sizes
+    assert torch.allclose(model.snp_effects_prior,
+                          torch.as_tensor(ds.geno_beta_init, dtype=torch.double))
+    # at init beta == prior, so penalty is 0
+    assert model.genetic_l2().item() == pytest.approx(0.0)
+    # perturb and check sum of squared deviations from the prior
+    with torch.no_grad():
+        model.snp_effects.add_(torch.tensor([0.1, -0.2, 0.3], dtype=torch.double))
+    assert model.genetic_l2().item() == pytest.approx(0.1**2 + 0.2**2 + 0.3**2)
+
+
+def test_geno_l2_shrinks_beta_toward_prior(synthetic_genotype_file):
+    path, _, _ = synthetic_genotype_file
+    ds = _make_dataset(genotype=path)
+    base = ProtriderAutoencoder(
+        in_dim=ds.X.shape[1], latent_dim=4, n_layers=1, n_cov=ds.covariates.shape[1],
+        prot_means=None, n_geno_terms=ds.n_geno_terms,
+        beta_init=ds.geno_beta_init, geno_protein_index=ds.geno_protein_index,
+    ).double()
+    crit = MSEBCELoss()
+    prior = base.snp_effects_prior.detach().clone()
+
+    # identical starting point for both runs
+    free = copy.deepcopy(base)
+    reg = copy.deepcopy(base)
+    torch.manual_seed(0)
+    train(ds, free, crit, n_epochs=60, learning_rate=1e-2, patience=100, geno_l2=0.0)
+    torch.manual_seed(0)
+    train(ds, reg, crit, n_epochs=60, learning_rate=1e-2, patience=100, geno_l2=1e3)
+
+    free_dist = (free.snp_effects.detach() - prior).norm().item()
+    reg_dist = (reg.snp_effects.detach() - prior).norm().item()
+    # the strong penalty keeps beta near the prior; the free fit drifts away
+    assert reg_dist < free_dist
 
 
 def test_checkpoint_roundtrip_preserves_genetic_term(synthetic_genotype_file):
