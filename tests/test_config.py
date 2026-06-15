@@ -16,7 +16,7 @@ class TestProtriderConfig:
             input_intensities="data.csv"
         )
         assert config.out_dir == "output"
-        assert config.input_intensities == "data.csv"
+        assert config.input_intensities == ["data.csv"]
         # Check defaults are set
         assert config.seed == 42
         assert config.n_epochs == 100
@@ -29,6 +29,7 @@ class TestProtriderConfig:
             out_dir="output",
             input_intensities="data.csv",
             index_col="gene_id",
+            analysis="protrider",
             sample_annotation="annotations.csv",
             max_allowed_NAs_per_protein=0.5,
             log_func_name="log2",
@@ -232,7 +233,7 @@ class TestLoadConfig:
         try:
             config = load_config(temp_path)
             assert config.out_dir == 'test_output'
-            assert config.input_intensities == 'test_data.csv'
+            assert config.input_intensities == ['test_data.csv']
             assert config.n_epochs == 150
             assert config.lr == 1e-3
             assert config.seed == 99
@@ -284,7 +285,7 @@ class TestLoadConfig:
         if config_path.exists():
             config = load_config(config_path)
             assert config.out_dir == 'output'
-            assert config.input_intensities == 'sample_data/protrider_sample_dataset.tsv'
+            assert config.input_intensities == ['sample_data/protrider_sample_dataset.tsv']
             assert config.index_col == 'protein_ID'
             assert config.n_epochs == 100
             assert config.find_q_method == 'OHT'
@@ -403,7 +404,7 @@ class TestConfigDefaults:
         config_dict = config.as_dict()
         
         # Verify key fields are present
-        assert config_dict["input_intensities"] == "data.csv"
+        assert config_dict["input_intensities"] == ["data.csv"]
         assert config_dict["input_format"] == "proteins_as_columns"
         assert config_dict["sample_annotation"] == "annotations.csv"
         assert config_dict["cov_used"] == ["SEX", "AGE"]

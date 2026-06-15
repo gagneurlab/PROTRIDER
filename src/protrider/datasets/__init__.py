@@ -1,1 +1,1 @@
-from .datasets import PCADataset, ProtriderDataset, ProtriderSubset
+from .datasets import PCADataset, ProtriderDataset, ProtriderSubset, OutriderDataset

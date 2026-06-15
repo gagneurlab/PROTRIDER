@@ -1,15 +1,23 @@
 import copy
 import torch
+from torch.special import gammaln
 import torch.nn as nn
+import torch.nn.functional as F
+
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 import logging
-import torch.nn.functional as F
+from ..dispersions import Dispersion, NegativeBinomialDistribution
+
 from protrider.datasets import ProtriderSubset
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,  # show DEBUG and above
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 @dataclass
 class ModelInfo:
@@ -135,8 +143,9 @@ class ConditionalEnDecoder(nn.Module):
 
 class ProtriderAutoencoder(nn.Module):
     def __init__(self, in_dim, latent_dim, n_layers=1, n_cov=0, h_dim=None,
-                 prot_means=None, presence_absence=False):
+                 prot_means=None, presence_absence=False, model_type="protrider"):
         super().__init__()
+        self.model_type = model_type
         self.n_layers = n_layers
         self.presence_absence = presence_absence
         self.encoder = ConditionalEnDecoder(in_dim=in_dim + n_cov,
@@ -147,6 +156,11 @@ class ProtriderAutoencoder(nn.Module):
                                             out_dim=in_dim,
                                             h_dim=h_dim, n_layers=n_layers,
                                             is_encoder=False, prot_means=prot_means)
+        
+        if self.model_type == "outrider":
+            self.distribution = NegativeBinomialDistribution()
+            self.dispersion = Dispersion(self.distribution)
+            
 
     def forward(self, x, mask, cond=None):
         if self.presence_absence:
@@ -156,6 +170,10 @@ class ProtriderAutoencoder(nn.Module):
 
         z = self.encoder(x, cond=cond)
         out = self.decoder(z, cond=cond)
+
+        if self.model_type == "outrider":
+            out = torch.clip(out, -700, 700)
+
         return out
 
     def initialize_wPCA(self, Vt_q, prot_means, n_cov=0):
@@ -181,7 +199,10 @@ class ProtriderAutoencoder(nn.Module):
                        cov_enc_init.to(device)], axis=1)
         )
 
-        enc_layer.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
+        if self.model_type == "outrider":
+            enc_layer.bias.data.zero_()
+        else:
+            enc_layer.bias.data.copy_(-(Vt_q @ torch.from_numpy(prot_means).to(device).T).flatten())
 
         ## DECODER weights: (n_prots, q + n_cov), bias: (n_prot)
         dec_layer.bias.data.copy_(torch.from_numpy(prot_means).squeeze(0))
@@ -191,12 +212,23 @@ class ProtriderAutoencoder(nn.Module):
                        cov_dec_init.to(device)], axis=1)
         )      
 
+    def update_dispersion(self, x_true, x_pred):
+        self.dispersion.update(x_true, x_pred)
+
+    def fit_dispersion(self, x_true, x_pred):
+        self.dispersion.fit(x_true, x_pred)
+
+    def get_dispersion_parameters(self):
+        """Get dispersion parameters (mu_scale, theta)"""
+        return self.dispersion.get_parameters()
+
+
 def mse_masked(x_hat, x, mask):
-    mse_loss = nn.MSELoss(reduction="none")
-    loss = mse_loss(x_hat, x)
+    reconstruction_loss = nn.MSELoss(reduction="none")
+    loss = reconstruction_loss(x_hat, x)
     masked_loss = torch.where(mask, torch.nan, loss)
-    mse_loss_val = masked_loss.nanmean()
-    return mse_loss_val
+    reconstruction_loss_val = masked_loss.nanmean()
+    return reconstruction_loss_val
 
 
 class MSEBCELoss(nn.Module):
@@ -212,20 +244,65 @@ class MSEBCELoss(nn.Module):
             presence_hat = x_hat[1]  # Predicted presence (0–1)
             x_hat = x_hat[0]  # Predicted intensities
 
-        mse_loss = mse_masked(x_hat, x, mask)
+        reconstruction_loss = mse_masked(x_hat, x, mask)
         if detached:
-            mse_loss = mse_loss.detach().cpu().numpy()
+            reconstruction_loss = reconstruction_loss.detach().cpu().numpy()
 
         if self.presence_absence:
             bce_loss = F.binary_cross_entropy(torch.sigmoid(presence_hat), presence)
             if detached:
                 bce_loss = bce_loss.detach().cpu().numpy()
-            loss = mse_loss + self.lambda_bce * bce_loss
+            loss = reconstruction_loss + self.lambda_bce * bce_loss
         else:
             bce_loss = None
-            loss = mse_loss
+            loss = reconstruction_loss
 
-        return loss, mse_loss, bce_loss
+        return loss, reconstruction_loss, bce_loss
+
+
+
+def train_val(train_subset: ProtriderSubset, val_subset: ProtriderSubset, model, criterion, n_epochs=100, learning_rate=1e-3, val_every_nepochs=1,
+              batch_size=None, patience=100, min_delta=0.001):
+    # start data;pader
+    if batch_size is None:
+        batch_size = train_subset.X.shape[0]
+    data_loader = torch.utils.data.DataLoader(train_subset, batch_size=batch_size, shuffle=True)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    min_val_loss = np.inf
+    best_model_wts = copy.deepcopy(model.state_dict())
+    early_stopping_counter = 0
+    early_stopping_epoch = 0
+
+    train_losses = []
+    val_losses = []
+    for epoch in tqdm(range(n_epochs)):
+        train_loss, train_reconstruction_loss, train_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
+
+        if epoch % val_every_nepochs == 0:
+            train_losses.append(train_loss)
+            x_hat_val = model(val_subset.X, val_subset.torch_mask, cond=val_subset.covariates)
+            val_loss, val_reconstruction_loss, val_bce_loss = criterion(x_hat_val, val_subset.X, val_subset.torch_mask)
+
+            val_losses.append(val_loss.detach().cpu().numpy())
+            logger.debug('[%d] train loss: %.6f' % (epoch + 1, train_loss))
+            logger.debug('[%d] validation loss: %.6f' % (epoch + 1, val_loss))
+
+            if min_val_loss - val_loss > min_delta:
+                min_val_loss = val_loss
+                best_model_wts = copy.deepcopy(model.state_dict())
+                early_stopping_counter = 0
+                early_stopping_epoch = epoch + 1
+            else:
+                early_stopping_counter += 1
+                if early_stopping_counter >= patience:
+                    logger.info(f"\tEarly stopping at epoch {epoch + 1}")
+                    break
+
+    logger.info('\tRestoring model weights from epoch %s', early_stopping_epoch)
+    model.load_state_dict(best_model_wts)
+    # make losses a 2d array
+    return np.array(train_losses), np.array(val_losses)
 
 
 def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_size=None, wandb=None, patience=50, min_delta=1e-4):
@@ -244,15 +321,15 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
     best_model_wts = copy.deepcopy(model.state_dict())
     early_stopping_epoch = 0
     for epoch in tqdm(range(n_epochs)):
-        running_loss, running_mse_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
+        running_loss, running_reconstruction_loss, running_bce_loss = _train_iteration(data_loader, model, criterion, optimizer)
         scheduler.step(running_loss)
-        logger.debug('[%d] loss: %.6f, mse loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
-                                                                          running_mse_loss, running_bce_loss))
+        logger.debug('[%d] loss: %.6f, reconstruction loss: %.6f, bce loss: %.6f' % (epoch + 1, running_loss,
+                                                                          running_reconstruction_loss, running_bce_loss))
         train_losses.append(running_loss)
         if wandb is not None:
             wandb.log({
                 'train/loss': running_loss,
-                'train/mse_loss': running_mse_loss,
+                'train/reconstruction_loss': running_reconstruction_loss,
                 'train/bce_loss': running_bce_loss
             })
         if min_train_loss - running_loss > min_delta:
@@ -268,32 +345,113 @@ def train(dataset, model, criterion, n_epochs=100, learning_rate=1e-3, batch_siz
 
     logger.info('\tRestoring model weights from epoch %s', early_stopping_epoch)
     model.load_state_dict(best_model_wts)
-    return running_loss, running_mse_loss, running_bce_loss, train_losses
+    return running_loss, running_reconstruction_loss, running_bce_loss, train_losses
 
 
 def _train_iteration(data_loader, model, criterion, optimizer):
     running_loss = 0.0
-    running_mse_loss = 0.0
+    running_reconstruction_loss = 0.0
     running_bce_loss = 0.0
 
     n_batches = 0
     for batch_idx, data in enumerate(data_loader):
-        x, mask, cov, prot_means = data
+        if model.model_type == "protrider":
+            x, mask, cov, prot_means = data
+        elif model.model_type == "outrider":
+            x, mask, cov, prot_means, raw_x, size_factors = data
 
-        # restore grads and compute model out
+        # Restore grads and compute model out
         optimizer.zero_grad()
         x_hat = model(x, mask, cond=cov)
 
-        loss, mse_loss, bce_loss = criterion(x_hat, x, mask)
+        # Calculate loss
+        if model.model_type == "outrider":
+            _, theta = model.get_dispersion_parameters()
+
+            x_pred = torch.exp(x_hat) * size_factors
+            loss, reconstruction_loss, bce_loss = criterion((theta, x_pred), raw_x, mask)
+        elif model.model_type == "protrider":
+            loss, reconstruction_loss, bce_loss = criterion(x_hat, x, mask) 
 
         # Adjust learning weights
         loss.backward()
         optimizer.step()
 
+        # Update dispersions in OUTRIDER model
+        if model.model_type == "outrider":
+            with torch.no_grad():
+                _, theta = model.get_dispersion_parameters()
+                x_pred = torch.exp(x_hat) * size_factors
+                model.fit_dispersion(raw_x.T, x_pred.T)
+                model.dispersion.clip_theta()
+                _, theta = model.get_dispersion_parameters()
+
         # Gather data and report
         running_loss += loss.item()
-        running_mse_loss += mse_loss.item()
+        running_reconstruction_loss += reconstruction_loss.item()
         running_bce_loss += bce_loss.item() if bce_loss is not None else 0
         n_batches += 1
 
-    return running_loss / n_batches, running_mse_loss / n_batches, running_bce_loss / n_batches
+    return running_loss / n_batches, running_reconstruction_loss / n_batches, running_bce_loss / n_batches
+
+class NegativeBinomialLoss(nn.Module):
+    def __init__(self, presence_absence=False, lambda_bce=1.0, eps=1e-8):
+        super().__init__()
+        self.presence_absence = presence_absence
+        self.lambda_bce = lambda_bce
+        self.eps = eps
+
+    def forward(self, predictions, x_true, mask=None, detached=False):
+        """
+        predictions: tuple of (theta, x_pred) where:
+            - theta: dispersion parameters (genes,) 
+            - x_pred: predicted counts (batch_size x genes)
+        x_true: observed counts (batch_size x genes)
+        mask: optional mask
+        """
+
+        if isinstance(predictions, tuple):
+            theta, x_pred = predictions
+        else:
+            raise ValueError("Theta must be provided for NB loss")
+        
+        if not isinstance(theta, torch.Tensor):
+            theta = torch.tensor(theta, dtype=torch.float64, device=x_true.device)
+        
+        # Ensure theta has the right shape (1, genes) for broadcasting
+        if theta.dim() == 1:
+            theta = theta.unsqueeze(0)
+        
+        # Compute NB negative log-likelihood per gene
+        eps = 1e-10
+        r = torch.clamp(theta, min=eps)
+        mu = torch.clamp(x_pred, min=eps)
+        
+        term1 = gammaln(x_true + r) - gammaln(r) - gammaln(x_true + 1)
+        term2 = r * torch.log(r / (r + mu))
+        term3 = x_true * torch.log(mu / (r + mu))
+        log_prob = term1 + term2 + term3
+        
+        if mask is not None:
+            log_prob = torch.where(mask, torch.tensor(0.0, device=log_prob.device), log_prob)
+            nll = -log_prob.sum() / (~mask).sum()
+        else:
+            nll = -log_prob.mean()
+        
+        # Handle presence/absence if needed
+        if self.presence_absence:
+            presence = (~mask).double()
+            presence_hat = x_pred[1]
+            x_pred = x_pred[0]
+            bce_loss = F.binary_cross_entropy(torch.sigmoid(presence_hat), presence)
+            loss = nll + self.lambda_bce * bce_loss
+        else:
+            bce_loss = None
+            loss = nll
+
+        if detached:
+            return (loss.detach().cpu().numpy(),
+                    nll.detach().cpu().numpy(),
+                    bce_loss.detach().cpu().numpy() if bce_loss is not None else None)
+            
+        return loss, nll, bce_loss

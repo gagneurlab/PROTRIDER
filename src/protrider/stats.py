@@ -18,13 +18,16 @@ class FitParameters:
     sigmas: np.ndarray[float]
     means: np.ndarray[float]
     degrees_freedoms: np.ndarray[float] = None
+    # OUTRIDER negative-binomial dispersions (theta), per gene. None for gaussian/t fits.
+    dispersions: np.ndarray[float] = None
 
     def to_dict(self):
         return {
             'gene': self.genes,
             'sigma': self.sigmas,
             'mean': self.means,
-            'degrees_freedom': self.degrees_freedoms
+            'degrees_freedom': self.degrees_freedoms,
+            'dispersion': self.dispersions
         }
 
     def to_csv(self, out_dir: str):
@@ -43,19 +46,24 @@ def fit_residuals(res, dis='gaussian', n_jobs=-1, use_common_df=True):
 
     return FitParameters(genes=genes, sigmas=sigma, means=mu, degrees_freedoms=df)
 
-def get_pvals(res, fit_params: FitParameters, how='two-sided', dis='gaussian', n_jobs=-1):
+def get_pvals(res, fit_params: FitParameters, how='two-sided', dis='gaussian', n_jobs=-1, x_true=None):
     hows = ('two-sided', 'left', 'right')
     if how not in hows:
         raise ValueError(f'Method should be in <{hows}>')
-    dists = ('gaussian', 't')
+    dists = ('gaussian', 't', 'nb')
     if dis not in dists:
         raise ValueError(f'Distribution should be in <{dists}>')
 
     if dis == 'gaussian':
-        pvals, z = _get_pv_norm(res, mu=fit_params.means, sigma=fit_params.sigmas, how=how, )
-    else:
+        pvals, z = _get_pv_norm(res, mu=fit_params.means, sigma=fit_params.sigmas, how=how)
+    elif dis == 't':
         assert fit_params.degrees_freedoms is not None, "df should be provided for t-distribution"
         pvals, z = get_pv_t(res, df=fit_params.degrees_freedoms, sigma=fit_params.sigmas, mu=fit_params.means, how=how, n_jobs=n_jobs)
+    else:  # 'nb' (OUTRIDER negative-binomial path)
+        assert x_true is not None, "x_true (observed counts) must be provided for the NB distribution"
+        assert fit_params.dispersions is not None, "dispersions (theta) must be provided for the NB distribution"
+        z, _, _, _ = calc_effect(x_true, res, "zscores")
+        pvals = get_pv_nb(counts=x_true, res=res, mu=fit_params.means, theta=fit_params.dispersions, how=how)
 
     return pvals, z
 
@@ -85,6 +93,76 @@ def _get_pv_norm(res, mu, sigma, how='two-sided'):
         pvals = 2 * np.minimum(left_pvals, right_pvals)
     pvals[mask] = np.nan
     return pvals, z
+
+
+def calc_effect(counts, res, effect_type=['fold_change', 'zscores', 'delta']):
+    """
+    Calculates effect sizes based on fitted expected values
+
+    Parameters:
+        counts: observed values (2D array)
+        res: predicted counts (same shape)
+        effect_type: The type of method for effect size calculation.
+                     Must be one or a list of several of the following: 'none',
+                     'fold-change', 'zscores' or 'delta'.
+    Returns:
+        zscore, delta, outrider_fc, outrider_l2fc.
+    """
+    outrider_fc = None
+    outrider_l2fc = None
+    delta = None
+    zScores = None
+
+    if isinstance(effect_type, str):
+        effect_type = [effect_type]
+    for e_type in effect_type:
+        assert e_type in ('fold_change', 'zscores', 'delta', 'none'), (
+            f'Unknown effect_type: {e_type}')
+
+    if "fold_change" in effect_type or "zscores" in effect_type:
+        outrider_fc = (counts + 1) / (res + 1) 
+        outrider_l2fc = np.log2(counts + 1) -  np.log2(res + 1)
+
+    delta = counts - res
+    if "delta" in effect_type:
+        outrider_delta = delta
+    if "zscores" in effect_type:
+        zScores = (outrider_l2fc - np.mean(outrider_l2fc, axis=0, keepdims=True)) / np.std(outrider_l2fc, axis=0, ddof=1, keepdims=True)
+
+    return zScores, delta, outrider_fc, outrider_l2fc
+
+
+def get_pv_nb(counts, res, mu, theta, how='two-sided'):
+    """
+    Compute NB-based p-values for observed counts against expected mean and dispersion.
+
+    Parameters:
+        counts: observed values (samples, genes)
+        res: predicted counts (samples, genes)
+        mu: baseline expression levels (genes,)
+        theta: dispersion parameters (genes,)
+        how: 'two-sided', 'left', or 'right'
+    Returns:
+        np array: gene-sample pvalues.
+    """
+
+    if how not in ('two-sided', 'left', 'right'):
+        raise ValueError(f"Invalid 'how': {how}. Choose from 'two-sided', 'left', or 'right'.")
+
+    mean = res * mu[np.newaxis, :]
+    size = np.broadcast_to(theta[np.newaxis, :], counts.shape)
+    p = size / (size + mean)
+
+    # Compute CDF, PMF
+    pless = scipy.stats.nbinom.cdf(counts, n=size, p=p)
+    dval = scipy.stats.nbinom.pmf(counts, n=size, p=p)
+
+    if how == 'left':
+        return pless
+    elif how == 'right':
+        return 1 - pless + dval
+    else:  # two-sided
+        return 2 * np.minimum(np.minimum(pless, 1 - pless + dval), 0.5)
 
 
 def _get_pv_t_base(x, mu, sigma, df, how='two-sided'):

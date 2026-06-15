@@ -22,7 +22,7 @@ class TestPipelineStandardMode:
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = ProtriderConfig(
                 out_dir=tmp_dir,
-                input_intensities=str(protein_intensities_path),
+                input_intensities=protein_intensities_path,
                 sample_annotation=str(covariates_path),
                 index_col=protein_intensities_index_col,
                 cov_used=['AGE', 'SEX'],

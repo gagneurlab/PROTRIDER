@@ -18,7 +18,7 @@ def covariates_path():
 
 @pytest.fixture
 def protein_intensities_path():
-    return Path('sample_data/protrider_sample_dataset.tsv')
+    return 'sample_data/protrider_sample_dataset.tsv'
 
 
 @pytest.fixture
@@ -34,3 +34,14 @@ def categorical_covariates():
 @pytest.fixture
 def continuous_covariates():
     return ['AGE']
+
+
+@pytest.fixture
+def gene_expression_path():
+    return 'sample_data/drop_demo_counts_all.tsv'
+
+
+@pytest.fixture
+def gene_annotation_path():
+    return 'sample_data/gencode_annotation_trunc.gtf'
+

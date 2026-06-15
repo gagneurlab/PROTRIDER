@@ -9,29 +9,41 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def read_protein_intensities(input_intensities: str, index_col: str, input_format: str = "proteins_as_rows") -> pd.DataFrame:
-    """Read protein intensities from a file.
-    
+
+def read_protein_intensities(input_intensities, index_col: str, input_format: str = "proteins_as_rows") -> pd.DataFrame:
+    """Read protein intensities from one or more files.
+
     Args:
-        input_intensities: Path to file (CSV, TSV, or Parquet)
+        input_intensities: Path to a file, or a list of paths whose columns are
+                           concatenated (CSV, TSV, or Parquet; optionally .gz)
         index_col: Name of the index column containing protein IDs
         input_format: Format of the input file:
                      - "proteins_as_rows": proteins are rows, samples are columns (default)
                      - "proteins_as_columns": samples are rows, proteins are columns
-    
+
     Returns:
         pd.DataFrame: Protein intensities with samples as rows and proteins as columns
     """
-    file_extension = Path(input_intensities).suffix
-    if file_extension == '.csv':
-        data = pd.read_csv(input_intensities).set_index(index_col)
-    elif file_extension == '.tsv':
-        data = pd.read_csv(input_intensities,
-                           sep='\t').set_index(index_col)
-    elif file_extension == '.parquet':
-        data = pd.read_parquet(input_intensities, engine='fastparquet').set_index(index_col)
-    else:
-        raise ValueError(f"Unsupported file type: {file_extension}")
+    # Accept a single path (str/Path) or a list of paths.
+    if isinstance(input_intensities, (str, Path)):
+        input_intensities = [input_intensities]
+    intensities = []
+    for input_intensity in input_intensities:
+        suffixes = Path(input_intensity).suffixes
+        compression = None
+        if suffixes[-1] == '.gz':
+            compression = 'gzip'
+            suffixes = suffixes[:-1]
+        if suffixes[-1] == '.csv':
+            temp_data = pd.read_csv(input_intensity, compression=compression).set_index(index_col)
+        elif suffixes[-1] == '.tsv':
+            temp_data = pd.read_csv(input_intensity, sep='\t', compression=compression).set_index(index_col)
+        elif suffixes[-1] == '.parquet':
+            temp_data = pd.read_parquet(input_intensity, engine='fastparquet').set_index(index_col)
+        else:
+            raise ValueError(f"Unsupported file type: {suffixes[-1]}")
+        intensities.append(temp_data)
+    data = pd.concat(intensities, axis=1)
     
     # Transpose if needed to get samples as rows, proteins as columns
     if input_format == "proteins_as_rows":

@@ -2,7 +2,7 @@
 out_dir: output
 
 # csv input file containing intensities. Columns are samples and rows are proteins.
-input_intensities: sample_data/protrider_sample_dataset.tsv
+input_intensities: "sample_data/protrider_sample_dataset.tsv"
 
 # column name in the input file indicating the column name containing the protein names/IDs
 index_col: "protein_ID"
@@ -18,6 +18,13 @@ max_allowed_NAs_per_protein: 0.3
 log_func_name: "log"
 # whether to apply DESeq2 size-factor normalization before log transformation.
 normalize: True
+
+# analysis engine: "protrider" (intensity, MSE) or "outrider" (counts, negative-binomial)
+analysis: "protrider"
+# OUTRIDER-only params (used when analysis: "outrider")
+fpkmCutoff: 1
+# gtf: "/s/genomes/human/hg38/gencode.v34/gencode.v34.annotation.gtf.gz"
+gtf: "/s/project/py_outrider/demo_ae/Data/gencode_annotation_trunc.gtf"
 
 # names of columns in the sample annotation file to be passed as covariates to the autoencoder.
 # leaving this empty results in no covariates passed to the model
@@ -36,7 +43,8 @@ inj_sd: 1.6
 gs_epochs: 100
 
 ## Model params
-autoencoder_training: True ## when set to false, it returns values after (PCA) initialization without training
+autoencoder_training: False ## when set to false, it returns values after (PCA) initialization without training
+autoencoder_loss: "NLL" # MSE or NLL
 
 n_layers: 1 # number of layers for the autoencoder model
 n_epochs: 100 # number of training epochs
@@ -52,7 +60,7 @@ presence_absence: False
 lambda_presence_absence: 0.5
 
 ## Stat params
-pval_dist: 't' # Distribution choice for P-value computation. Options: gaussian, t
+pval_dist: 't' # Distribution choice for P-value computation. Options: gaussian, t, nb
 pval_adj: 'by' # Multiple testing correction. Options: by, bh
 pval_sided: 'two-sided'
 common_degrees_freedom: False # whether to use common degrees of freedom; more stable for small datasets
@@ -67,7 +75,7 @@ device: 'gpu'
 
 ## Model checkpoint
 # Path to save/load model checkpoint (optional)
-# If None: saves to out_dir/model.pt (or model_fold_N.pt for CV)
+# If None: saves to out_dir/model.pt
 # If specified and exists: loads model from this path and skips training
 # If specified and doesn't exist: trains and saves to this path
 # checkpoint_path: 'checkpoint.pt'

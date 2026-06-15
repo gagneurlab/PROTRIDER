@@ -292,6 +292,7 @@ class TestDataConsistency:
         from protrider.datasets.protein_intensities import read_protein_intensities
         
         # Read protein intensities to get sample count
+        protein_intensities_path = [protein_intensities_path]
         protein_data = read_protein_intensities(protein_intensities_path, protein_intensities_index_col)
         
         # Parse covariates

@@ -6,8 +6,8 @@ import torch
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import train, MSEBCELoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo, GridSearchResult
-from .datasets import ProtriderDataset, ProtriderSubset
+from .model import train, MSEBCELoss, NegativeBinomialLoss, ProtriderAutoencoder, find_latent_dim, init_model, ModelInfo, GridSearchResult
+from .datasets import ProtriderDataset, ProtriderSubset, OutriderDataset
 from .stats import get_pvals, fit_residuals, adjust_pvals, FitParameters
 from .config import ProtriderConfig
 
@@ -109,9 +109,10 @@ class Result:
     n_out_total: int
     pval_dist: str = 'gaussian'  # Distribution used for p-value computation
     outlier_threshold: float = 0.1  # Threshold for determining outliers
+    dispersions: pd.DataFrame = None # Dispersions for OUTRIDER or FRASER
     
-    def save(self, out_dir: str, format: Literal["wide", "long"] = "wide", 
-             include_all: bool = False):
+    def save(self, out_dir: str, format: Literal["wide", "long"] = "wide",
+             include_all: bool = False, analysis: str = "protrider") -> Optional[pd.DataFrame]:
         """
         Save result dataframes to CSV files.
         
@@ -180,9 +181,29 @@ class Result:
             self.fc.T.to_csv(out_p, header=True, index=True)
             logger.info(f"Saved fc scores to {out_p}")
             
+            # AE raw, filtered input
+            if analysis == 'outrider':
+                # raw_filtered
+                out_p = f'{out_dir}/raw_filtered_input.csv'
+                self.dataset.raw_filtered.T.to_csv(out_p, header=True, index=True)
+                logger.info(f"Saved raw_filtered_input to {out_p}")
+
+                # sizefactors
+                sf_df = pd.DataFrame(self.dataset.size_factors.cpu(), index=self.dataset.raw_filtered.index, columns=["size_factor"])
+                out_p = f'{out_dir}/sizefactors.csv'
+                sf_df.to_csv(out_p, header=True, index=True)
+                logger.info(f"Saved sizefactors to to {out_p}")
+
+                # dispersions
+                out_p = f'{out_dir}/theta.csv'
+                self.dispersions.to_csv(out_p, header=True, index=True)
+                logger.info(f"Saved thetas to to {out_p}")
+
+            return None
+
         elif format == "long":
             logger.info('=== Saving results in long format ===')
-            
+
             # Create a multi-index dataframe with all values
             dfs_to_melt = {
                 'PROTEIN_LOG2INT': self.dataset.data,
@@ -429,7 +450,8 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
 
     # 1. Initialize dataset
     logger.info('Initializing dataset')
-    dataset = ProtriderDataset(input_intensities=input_intensities,
+    if config.analysis == "protrider":
+        dataset = ProtriderDataset(input_intensities=input_intensities,
                                index_col=config.index_col,
                                sa_file=sample_annotation,
                                cov_used=config.cov_used,
@@ -438,6 +460,18 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
                                device=config.device_torch,
                                input_format=config.input_format,
                                normalize=config.normalize)
+    elif config.analysis == "outrider":
+        dataset = OutriderDataset(input_intensities=input_intensities,
+                               index_col=config.index_col,
+                               sa_file=sample_annotation,
+                               cov_used=config.cov_used,
+                               log_func=config.log_func,
+                               fpkm_cutoff=config.fpkmCutoff,
+                               gtf=config.gtf,
+                               device=config.device_torch,
+                               input_format=config.input_format)
+    else:
+        raise ValueError(f"Unknown analysis type: {config.analysis!r} (expected 'protrider' or 'outrider')")
 
     # 2. Determine checkpoint path and try to load existing model
     model = None
@@ -449,7 +483,7 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
         checkpoint_path = Path(config.out_dir) / 'model.pt'
     else:
         checkpoint_path = None
-    
+
     if checkpoint_path and checkpoint_path.exists():
         logger.info(f'Attempting to load model from {checkpoint_path}')
         model, q = load_model(dataset, str(checkpoint_path), config)
@@ -476,6 +510,8 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
                             presence_absence=config.presence_absence,
                             lambda_bce=config.lambda_presence_absence,
                             common_degrees_freedom=config.common_degrees_freedom,
+                            model_type=config.analysis,
+                            loss_fn=config.autoencoder_loss,
                             n_jobs=config.n_jobs,
                             patience=config.patience,
                             min_delta=config.min_delta
@@ -490,28 +526,35 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
                            n_layer=config.n_layers,
                            h_dim=config.h_dim,
                            device=config.device_torch,
-                           presence_absence=config.presence_absence if config.n_layers == 1 else False
+                           presence_absence=config.presence_absence if config.n_layers == 1 else False,
+                           model_type=config.analysis
                            )
     else:
         logger.info(f'Using loaded model with q={q}')
-    
-    criterion = MSEBCELoss(
-        presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
+
+    if config.autoencoder_loss == "MSE":
+        criterion = MSEBCELoss(
+            presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
+    elif config.autoencoder_loss == "NLL":
+        criterion = NegativeBinomialLoss(
+            presence_absence=config.presence_absence, lambda_bce=config.lambda_presence_absence)
+    else:
+        raise ValueError(f"Unknown autoencoder_loss: {config.autoencoder_loss!r} (expected 'MSE' or 'NLL')")
     logger.info('Model:\n%s', model)
     logger.info('Device: %s', config.device_torch)
 
     # 4. Compute initial loss
-    df_out, df_presence, init_loss, init_mse_loss, init_bce_loss = _inference(
+    df_out, theta, df_presence, init_loss, init_reconstruction_loss, init_bce_loss = _inference(
         dataset, model, criterion)
-    logger.info('Initial loss after model init: %s, mse loss: %s, bce loss: %s', init_loss, init_mse_loss,
-                init_bce_loss)
+    logger.info('Initial loss after model init: %s, reconstruction loss: %s, bce loss: %s', init_loss,
+                init_reconstruction_loss, init_bce_loss)
     final_loss = 10**4
     train_losses = []
-    
+
     # 5. Train model if needed (skip if model was loaded from checkpoint)
     model_was_loaded = (checkpoint_path and checkpoint_path.exists() and q is not None)
     should_train = config.autoencoder_training and not model_was_loaded
-    
+
     if should_train:
         wandb = None
         if config.use_wandb:
@@ -533,17 +576,17 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
         logger.info('Fitting model')
         _, _, _, train_losses = train(dataset, model, criterion, n_epochs=config.n_epochs, learning_rate=float(config.lr),
                                       batch_size=config.batch_size, wandb=wandb, patience=config.patience, min_delta=config.min_delta)
-        df_out, df_presence, final_loss, final_mse_loss, final_bce_loss = _inference(
+        df_out, theta, df_presence, final_loss, final_reconstruction_loss, final_bce_loss = _inference(
             dataset, model, criterion)
-        logger.info('Final loss: %s, mse loss: %s, bce loss: %s',
-                    final_loss, final_mse_loss, final_bce_loss)
-        
+        logger.info('Final loss: %s, reconstruction loss: %s, bce loss: %s',
+                    final_loss, final_reconstruction_loss, final_bce_loss)
+
         # Save the trained model to checkpoint
         if checkpoint_path:
             save_model(model, str(checkpoint_path), q)
             if config.use_wandb:
                 wandb.log_model(str(checkpoint_path), 'protrider_model')
-        
+
         if config.use_wandb:
             wandb.finish()
     else:
@@ -553,51 +596,121 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
 
     # 6. Compute residuals, pvals, zscores
     logger.info('Computing statistics')
-    df_res = dataset.data - df_out  # log data - pred data
+    if config.analysis == "protrider":
+        df_res = dataset.data - df_out  # log data - pred data
+        x_true = None
+        dis = config.pval_dist
+        fit_params = fit_residuals(df_res, dis=dis, n_jobs=config.n_jobs,
+                                   use_common_df=config.common_degrees_freedom)
+    else:  # outrider (negative-binomial)
+        dis = 'nb'
+        df_out_clamped = np.clip(df_out, -700, 700)
+        df_res = np.exp(df_out_clamped) * dataset.size_factors.cpu().numpy()
+        df_out = df_res
+        mu, theta = model.get_dispersion_parameters()
+        if mu is None:
+            # Fit NB dispersion if it is not set yet
+            model.fit_dispersion(torch.tensor(dataset.raw_filtered.T.values, dtype=torch.float64),
+                                 torch.tensor(df_res.T.values, dtype=torch.float64))
+            mu, theta = model.get_dispersion_parameters()
+        x_true = dataset.raw_filtered.values
+        fit_params = FitParameters(genes=np.asarray(dataset.raw_filtered.columns),
+                                   sigmas=None, means=mu, dispersions=theta)
 
-    fit_params = fit_residuals(df_res, dis=config.pval_dist, n_jobs=config.n_jobs, use_common_df=config.common_degrees_freedom)
     pvals, Z = get_pvals(df_res.values,
                          fit_params=fit_params,
                          how=config.pval_sided,
-                         dis=config.pval_dist, n_jobs=config.n_jobs)
+                         dis=dis, n_jobs=config.n_jobs, x_true=x_true)
     pvals_one_sided, _ = get_pvals(df_res.values,
                                    fit_params=fit_params,
                                    how='left',
-                                   dis=config.pval_dist, n_jobs=config.n_jobs)
+                                   dis=dis, n_jobs=config.n_jobs, x_true=x_true)
 
     pvals_adj = adjust_pvals(pvals, method=config.pval_adj)
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
                              pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
                              pseudocount=config.pseudocount, outlier_threshold=config.outlier_threshold,
-                             base_fn=config.base_fn, pval_dist=config.pval_dist)
+                             base_fn=config.base_fn, pval_dist=config.pval_dist, dispersions=theta)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
                            train_losses=np.array(train_losses))
     return result, model_info, fit_params, gs_result
 
 
-def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss):
-    X_out = model(dataset.X, dataset.torch_mask, cond=dataset.covariates)
+def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: ProtriderAutoencoder, criterion: MSEBCELoss, batch_size=None, use_cpu=True):
 
-    loss, mse_loss, bce_loss = criterion(
-        X_out, dataset.X, dataset.torch_mask, detached=True)
-    df_presence = None
-    if model.presence_absence:
-        presence_hat = torch.sigmoid(X_out[1])  # Predicted presence (0–1)
-        X_out = X_out[0]  # Predicted intensities
+    # Save original device
+    orig_device = next(model.parameters()).device
 
-        df_presence = pd.DataFrame(presence_hat.detach().cpu().numpy())
-        df_presence.columns = dataset.data.columns
-        df_presence.index = dataset.data.index
+    # Extract tensors
+    X = dataset.X
+    mask = dataset.torch_mask
+    cov = dataset.covariates
+    raw_x = getattr(dataset, "raw_x", None)
 
-    df_out = pd.DataFrame(X_out.detach().cpu().numpy())
-    df_out.columns = dataset.data.columns
-    df_out.index = dataset.data.index
+    # Move tensors to appropriate device (CPU or original GPU)
+    device = "cpu" if use_cpu else orig_device
 
-    return df_out, df_presence, loss, mse_loss, bce_loss
+    # Move model to CPU if requested
+    model = model.to(device)
+    if model.encoder.prot_means is not None:
+        model.encoder.prot_means = model.encoder.prot_means.to(device)
+    X = X.to(device)
+    mask = mask.to(device)
+    if cov is not None:
+        cov = cov.to(device)
+    if raw_x is not None:
+        raw_x = raw_x.to(device)
+
+    model.eval()
+    with torch.no_grad():
+
+        if model.model_type == "protrider":
+            X_out = model(X, mask, cond=cov)
+            loss, reconstruction_loss, bce_loss = criterion(
+                X_out, X, mask, detached=True
+            )
+            theta = None
+
+        elif model.model_type == "outrider":
+            X_out = model(X, mask, cond=cov)
+
+            _, theta = model.get_dispersion_parameters()
+            loss, reconstruction_loss, bce_loss = criterion(
+                (theta, torch.exp(X_out) * torch.tensor(dataset.size_factors, device=device)),
+                raw_x,
+                detached=True
+            )
+
+        # Presence/Absence extension
+        df_presence = None
+        if model.presence_absence:
+            presence_hat = torch.sigmoid(X_out[1])
+            X_out = X_out[0]
+
+            df_presence = pd.DataFrame(
+                presence_hat.detach().cpu().numpy(),
+                index=dataset.data.index,
+                columns=dataset.data.columns
+            )
+
+        # Output intensities
+        df_out = pd.DataFrame(
+            X_out.detach().cpu().numpy(),
+            index=dataset.data.index,
+            columns=dataset.data.columns
+        )
+
+    # Restore model back to original device
+    if use_cpu:
+        model = model.to(orig_device)
+        if model.encoder.prot_means is not None:
+            model.encoder.prot_means = model.encoder.prot_means.to(orig_device)
+
+    return df_out, theta, df_presence, loss, reconstruction_loss, bce_loss
 
 
-def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist):
+def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist, dispersions):
     # Store as df
     df_pvals_adj = pd.DataFrame(pvals_adj)
     df_pvals_adj.columns = dataset.data.columns
@@ -626,6 +739,12 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pval
     n_out_median = np.nanmedian(outs_per_sample)
     n_out_max = np.nanmax(outs_per_sample)
     n_out_total = np.nansum(outs_per_sample)
+
+    if dispersions is not None:
+        dispersions = pd.DataFrame(dispersions)
+        dispersions.columns = ["theta"]
+        dispersions.index = dataset.data.columns
+
     logger.info(
         f'Finished computing pvalues. No. outliers per sample in median: {n_out_median}')
 
@@ -634,4 +753,4 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pval
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence, df_pvals=df_pvals, df_Z=df_Z,
                   df_pvals_one_sided=df_pvals_one_sided, df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,
-                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold)
+                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold, dispersions=dispersions)

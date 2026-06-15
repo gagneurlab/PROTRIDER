@@ -70,6 +70,13 @@ Input files are specified in the config:
 
 An example dataset is included under `sample_data/`.
 
+To run the OUTRIDER (count / negative-binomial) engine instead, also specify:
+- `analysis`: "outrider"
+- `fpkmCutoff`: A positive number indicating the minimum FPKM per gene that 5% of the samples should have. If a gene has less it is filtered out. Default value is 1.
+- `gtf`: Full path to the GTF file.
+- `autoencoder_loss`: "NLL" to use negative log likelyhood loss for optimization.
+- `pval_dist`: "nb" to use negative binomial distribution
+
 <details open>
 <summary><b>Configuration parameters</b></summary>
 

@@ -5,6 +5,7 @@ protrider/.ipynb_checkpoints/*
 protrider-simulation/
 output/*
 logs/*
+build
 .vscode/*
 **/.pytest_cache
 .venv/

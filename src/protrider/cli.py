@@ -248,9 +248,9 @@ def run(config_path: str):
 
     # Save results
     # Save wide format (individual CSV files)
-    result.save(config.out_dir, format="wide")
+    result.save(config.out_dir, format="wide", analysis=config.analysis)
     # Save long format summary
-    result.save(config.out_dir, format="long", include_all=config.report_all)
+    result.save(config.out_dir, format="long", include_all=config.report_all, analysis=config.analysis)
     # Save model information
     model_info.save(config.out_dir)
     # Save config

@@ -6,10 +6,11 @@ import torch
 import copy
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union
 
-from protrider.stats import get_pvals, fit_residuals
-from .model import ProtriderAutoencoder, train, MSEBCELoss  # masked
-from protrider.datasets import ProtriderSubset, ProtriderDataset
+from protrider.stats import get_pvals, fit_residuals, FitParameters
+from .model import ProtriderAutoencoder, train, MSEBCELoss, NegativeBinomialLoss  # masked
+from protrider.datasets import ProtriderSubset, ProtriderDataset, OutriderDataset
 import logging
 
 __all__ = ['init_model', 'find_latent_dim', 'GridSearchResult']
@@ -31,14 +32,15 @@ class GridSearchResult:
         df = pd.DataFrame(self.to_dict())
         df.to_csv(Path(out_dir) / 'grid_search_results.csv', index=False)
 
-def find_latent_dim(dataset: ProtriderDataset, method='OHT',
+def find_latent_dim(dataset: Union[ProtriderDataset, OutriderDataset], method='OHT',
                     inj_freq=1e-3, inj_mean=3, inj_sd=1.6,
                     init_wPCA=True, n_layers=1, h_dim=None,
                     n_epochs=100, learning_rate=1e-6, batch_size=None,
                     pval_sided='two-sided', pval_dist='gaussian',
                     common_degrees_freedom=True,
                     out_dir=None, device=torch.device('cpu'),
-                    presence_absence=False, lambda_bce=1., n_jobs=-1,
+                    presence_absence=False, lambda_bce=1.,
+                    model_type='protrider', loss_fn="MSE", n_jobs=-1,
                     patience=50, min_delta=1e-4
                     ) -> tuple[int, GridSearchResult]:
     dataset.perform_svd()
@@ -50,37 +52,62 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
         existing = enc2auprc.get(latent_dim, None)
         if existing is not None:
             return existing
-        
+
         logger.info(f"Testing q = {latent_dim}")
         model = init_model(injected_dataset, latent_dim, init_wPCA, n_layers, h_dim, device,
-                            presence_absence=presence_absence)
-        criterion = MSEBCELoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
+                           presence_absence=presence_absence, model_type=model_type)
+        if loss_fn == "MSE":
+            criterion = MSEBCELoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
+        elif loss_fn == "NLL":
+            criterion = NegativeBinomialLoss(presence_absence=presence_absence, lambda_bce=lambda_bce)
         X_out = model(injected_dataset.X, injected_dataset.torch_mask, cond=injected_dataset.covariates)
-        loss, mse_loss, bce_loss = criterion(X_out, injected_dataset.X, injected_dataset.torch_mask, detached=True)
-        logger.info('\tInitial loss after model init: %s, mse_loss: %s, bce_loss: %s',
-                    loss, mse_loss, bce_loss)
+        theta = None
+        if model.model_type == "protrider":
+            loss, reconstruction_loss, bce_loss = criterion(X_out, injected_dataset.X, injected_dataset.torch_mask, detached=True)
+        elif model.model_type == "outrider":
+            _, theta = model.get_dispersion_parameters()
+            loss, reconstruction_loss, bce_loss = criterion(
+                (theta, torch.exp(X_out) * torch.tensor(dataset.size_factors)),
+                dataset.raw_x,
+                detached=True)
+        logger.info(f'\tInitial loss after model init: %s, {loss_fn}_loss: %s, bce_loss: %s',
+                    loss, reconstruction_loss, bce_loss)
 
         logger.info('\tFitting model')
-        loss, mse_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size, patience=patience, min_delta=min_delta)
-        logger.info('\tFinal loss after model fit: %s, mse_loss: %s, bce_loss: %s',
-                    loss, mse_loss, bce_loss)
+        loss, reconstruction_loss, bce_loss, _ = train(injected_dataset, model, criterion, n_epochs, learning_rate, batch_size, patience=patience, min_delta=min_delta)
+        logger.info(f'\tFinal loss after model fit: %s, {loss_fn}_loss: %s, bce_loss: %s',
+                    loss, reconstruction_loss, bce_loss)
         X_out = model(injected_dataset.X, injected_dataset.torch_mask,
-                        cond=injected_dataset.covariates).detach().cpu().numpy()
+                      cond=injected_dataset.covariates).detach().cpu().numpy()
         if presence_absence:
             presence_out = X_out[1]
             X_out = X_out[0]
 
         if ~np.isfinite(loss):
-            auc_prec_rec = np.nan
+            auprc = np.nan
         else:
             X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
             X_in[injected_dataset.mask] = np.nan
-            res = X_in - X_out
-            fit_params = fit_residuals(pd.DataFrame(res), dis='gaussian', n_jobs=n_jobs, use_common_df=common_degrees_freedom)
-            pvals, _ = get_pvals(res, fit_params=fit_params,
-                                 how=pval_sided,
-                                 dis='gaussian', n_jobs=n_jobs
-                                 )
+            if model.model_type == "protrider":
+                res = X_in - X_out
+                fit_params = fit_residuals(pd.DataFrame(res), dis=pval_dist, n_jobs=n_jobs,
+                                           use_common_df=common_degrees_freedom)
+                pvals, _ = get_pvals(res, fit_params=fit_params, how=pval_sided,
+                                     dis=pval_dist, n_jobs=n_jobs)
+            else:  # outrider (negative-binomial)
+                df_out_clamped = np.clip(X_out, -700, 700)
+                df_res = np.exp(df_out_clamped) * dataset.size_factors.cpu().numpy()
+                res = df_res
+                mu, theta = model.get_dispersion_parameters()
+                if mu is None:
+                    # Fit NB dispersion if it is not set yet
+                    model.fit_dispersion(torch.tensor(dataset.raw_filtered.T.values, dtype=torch.float64),
+                                         torch.tensor(df_res.T.values, dtype=torch.float64))
+                    mu, theta = model.get_dispersion_parameters()
+                fit_params = FitParameters(genes=np.asarray(dataset.raw_filtered.columns),
+                                           sigmas=None, means=mu, dispersions=theta)
+                pvals, _ = get_pvals(res, fit_params=fit_params, how=pval_sided,
+                                     dis='nb', n_jobs=n_jobs, x_true=dataset.raw_filtered.values)
             auprc = _get_prec_recall(pvals, outlier_mask)
             logger.info(f"\t==> q = {latent_dim}: AUPRC = {auprc}")
         return auprc
@@ -88,10 +115,6 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
     if method == "OHT" or method == "oht":
         logger.info('OHT method for finding latent dim')
     elif method == "gs":
-        # init from PCA
-        dataset.perform_svd()
-        q = dataset.find_enc_dim_optht()
-
         logger.info('Grid search method for finding latent dim')
         logger.info('Injecting outliers')
         inj_freq = float(inj_freq)
@@ -103,7 +126,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
         for latent_dim in possible_qs:
             auprc = train_and_eval_q(latent_dim)
             enc2auprc[latent_dim] = auprc
-        
+
         q = max(enc2auprc, key=enc2auprc.get)
         logger.info(f'Finished grid search. Optimal encoding dimension = {q}.')
     elif method == "bs":
@@ -122,11 +145,11 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
 
         L, M, R = max(1, q // factor), q, k_max
         fL, fM, fR = train_and_eval_q(L), train_and_eval_q(M), train_and_eval_q(R)
-        
+
         enc2auprc[L] = fL
         enc2auprc[M] = fM
         enc2auprc[R] = fR
-      
+
         best_q, best_f = M, fM
 
         for it in range(max_iters):
@@ -149,7 +172,7 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
             # otherwise shift toward the better side
             if fR > fM:
                 L, fL = M, fM
-                M = M + (R - M) // factor 
+                M = M + (R - M) // factor
                 fM = train_and_eval_q(M)
                 enc2auprc[M] = fM
             else:
@@ -169,12 +192,16 @@ def find_latent_dim(dataset: ProtriderDataset, method='OHT',
 
 
 def init_model(dataset, latent_dim, init_wPCA=True, n_layer=1, h_dim=None, device=torch.device('cpu'),
-               presence_absence=False):
+               presence_absence=False, model_type="protrider"):
     n_cov = dataset.covariates.shape[1]
     n_prots = dataset.X.shape[1]
     model = ProtriderAutoencoder(in_dim=n_prots, latent_dim=latent_dim, n_layers=n_layer, h_dim=h_dim, n_cov=n_cov,
                                  prot_means=None if init_wPCA else dataset.prot_means_torch,
-                                 presence_absence=presence_absence)
+                                 presence_absence=presence_absence, model_type=model_type)
+
+    if model_type == "outrider":
+        model.dispersion.set_dispersion(model.distribution.init_train(dataset.X.T)[1])
+
     model.double().to(device)
     if init_wPCA:
         logger.info('\tInitializing model weights with PCA')
@@ -200,7 +227,7 @@ def _rlnorm(size, inj_mean, inj_sd):
     return np.random.lognormal(mean=log_mean, sigma=np.log(inj_sd), size=size)
 
 
-def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, device=torch.device('cpu')):
+def _inject_outliers(dataset, inj_freq=1e-3, inj_mean=3, inj_sd=1.6, device=torch.device('cpu'), size_factors=None):
     max_outlier_value = np.nanmin([100 * np.nanmax(dataset.X.detach().cpu().numpy()),
                                    torch.finfo(dataset.X.dtype).max])
     logger.info('max value %s', max_outlier_value)
@@ -260,3 +287,4 @@ def _get_prec_recall(X_pvalue, X_is_outlier):
     pre, rec, _ = precision_recall_curve(label, score)
     curve_auc = auc(rec, pre)
     return curve_auc  # {"auc": curve_auc, "pre": pre, "rec": rec}
+

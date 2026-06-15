@@ -16,15 +16,13 @@ class TestPipelineConfiguration:
     def test_missing_input_intensities(self):
         """Test that missing input_intensities raises appropriate error."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            config = ProtriderConfig(
-                out_dir=tmp_dir,
-                input_intensities=None,  # Missing
-                index_col='protein_ID'
-            )
-            
-            # Should fail when trying to run
-            with pytest.raises((ValueError, TypeError, AttributeError)):
-                run(config)
+            # Should fail before run
+            with pytest.raises(ValueError, match="input_intensities must be provided"):
+                    ProtriderConfig(
+                        out_dir=tmp_dir,
+                        input_intensities=None,  # Missing
+                        index_col='protein_ID'
+                    )
     
     def test_invalid_latent_dim_method(self, protein_intensities_path, protein_intensities_index_col):
         """Test that invalid find_q_method raises error during config validation."""
