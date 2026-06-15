@@ -67,7 +67,7 @@ def find_latent_dim(dataset: Union[ProtriderDataset, OutriderDataset], method='O
             X_out = X_out[0]
 
         if ~np.isfinite(loss):
-            auc_prec_rec = np.nan
+            auprc = np.nan
         else:
             X_in = copy.deepcopy(injected_dataset.X).detach().cpu().numpy()
             X_in[injected_dataset.mask] = np.nan
