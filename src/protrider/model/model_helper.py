@@ -76,8 +76,9 @@ def find_latent_dim(dataset: Union[ProtriderDataset, OutriderDataset], method='O
                 mu, sigma, df0 = fit_residuals(res=res, dis=pval_dist, n_jobs=n_jobs)
             elif model.model_type == "outrider":
                 df_out_clamped = np.clip(X_out, -700, 700)
-                df_res = np.exp(df_out_clamped) * dataset.size_factors
+                df_res = np.exp(df_out_clamped) * dataset.size_factors.cpu().numpy()
                 df_out = df_res
+                res = df_res
                 sigma = None
                 df0 = None
         
