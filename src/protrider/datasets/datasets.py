@@ -221,6 +221,11 @@ class OutriderDataset(Dataset, PCADataset):
 
         logger.info(f'Filtering based on fpkm')
         _, self.passed_filter = self.filter_genes_by_fpkm(self.fpkms.T, fpkm_cutoff=fpkm_cutoff, percentage=0.05)
+        # passed_filter is indexed by gene and may cover fewer genes than the data: genes
+        # without an exonic length in the GTF get no fpkm and so are absent from the filter.
+        # Align the mask to the data's columns by LABEL (missing genes -> dropped) instead of
+        # applying it positionally, which fails when len(passed_filter) != data.shape[1].
+        self.passed_filter = self.passed_filter.reindex(self.data.columns, fill_value=False)
         self.data = self.data.loc[:, self.passed_filter.values]
 
         self.raw_filtered = copy.deepcopy(self.data)  ## for storing output/plotting
