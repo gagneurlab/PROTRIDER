@@ -70,8 +70,17 @@ class Dispersion:
 
         optimizer.step(closure)
 
-        self.theta = (torch.exp(p_theta) + lower_bound).detach().cpu()
-        self.mu_scale = (torch.exp(p_mu_scale) + lower_bound).detach().cpu()
+        theta = torch.exp(p_theta) + lower_bound
+        mu_scale = torch.exp(p_mu_scale) + lower_bound
+        # `theta = exp(p_theta)` is unbounded, so the strong-wolfe LBFGS line search can
+        # overshoot -> theta -> inf -> the NB-loss gradient (lgamma of huge counts) overflows
+        # -> p_theta corrupts to NaN, returning an all-NaN gene vector. Fall back to the robust
+        # moment-of-moments init wherever the optimized value is non-finite, so theta/mu_scale
+        # are always finite and usable.
+        theta = torch.where(torch.isfinite(theta), theta, theta_init.to(theta))
+        mu_scale = torch.where(torch.isfinite(mu_scale), mu_scale, mu_scale_init.to(mu_scale))
+        self.theta = theta.detach().cpu()
+        self.mu_scale = mu_scale.detach().cpu()
 
 
 class NegativeBinomialDistribution:
