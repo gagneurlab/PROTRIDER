@@ -62,7 +62,9 @@ def get_pvals(res, fit_params: FitParameters, how='two-sided', dis='gaussian', n
     else:  # 'nb' (OUTRIDER negative-binomial path)
         assert x_true is not None, "x_true (observed counts) must be provided for the NB distribution"
         assert fit_params.dispersions is not None, "dispersions (theta) must be provided for the NB distribution"
-        z, _, _, _ = calc_effect(x_true, res, "zscores")
+        # z = per-gene NB->standard-normal quantile residual (mid-p PIT), computed from
+        # the SAME nbinom CDF/PMF as the p-value so the two are consistent (theta enters both).
+        z = _nb_quantile_z(counts=x_true, res=res, mu=fit_params.means, theta=fit_params.dispersions)
         pvals = get_pv_nb(counts=x_true, res=res, mu=fit_params.means, theta=fit_params.dispersions, how=how)
 
     return pvals, z
@@ -132,6 +134,53 @@ def calc_effect(counts, res, effect_type=['fold_change', 'zscores', 'delta']):
     return zScores, delta, outrider_fc, outrider_l2fc
 
 
+def _nb_cdf_pmf(counts, res, mu, theta):
+    """
+    Shared NB CDF/PMF for the OUTRIDER negative-binomial path.
+
+    Uses the OUTRIDER parameterization: NB mean = res * mu (per gene), dispersion = theta.
+    In scipy's (n, p) parameterization this is n = theta (size), p = theta / (theta + mean).
+
+    Returns:
+        pless: nbinom.cdf(counts)  -- F(k)
+        dval:  nbinom.pmf(counts)  -- f(k)
+    """
+    mean = res * mu[np.newaxis, :]
+    size = np.broadcast_to(theta[np.newaxis, :], counts.shape)
+    p = size / (size + mean)
+
+    pless = scipy.stats.nbinom.cdf(counts, n=size, p=p)
+    dval = scipy.stats.nbinom.pmf(counts, n=size, p=p)
+    return pless, dval
+
+
+def _nb_quantile_z(counts, res, mu, theta):
+    """
+    Per-gene NB -> standard-normal quantile residual (deterministic mid-p PIT).
+
+    For an observed count k with NB(mean=res*mu, dispersion=theta):
+        F   = nbinom.cdf(k)         (== pless in get_pv_nb)
+        f   = nbinom.pmf(k)         (== dval  in get_pv_nb)
+        mid = F - 0.5*f             (mid-p; equals F(k-1) + 0.5*PMF(k))
+        z   = norm.ppf(clip(mid, eps, 1-eps))
+
+    Under the null k ~ NB(mean, theta), `mid` is ~Uniform(0,1) per gene, so z is ~N(0,1)
+    per gene. Signed: low counts -> small F -> negative z (under-expression); high counts
+    -> positive z (over-expression). NaN is propagated where the count is NaN.
+
+    Uses the SAME nbinom CDF/PMF as get_pv_nb so z and the p-value are consistent.
+    """
+    counts = np.asarray(counts, dtype=np.float64)
+    mask = ~np.isfinite(counts)
+    safe_counts = np.where(mask, 0.0, counts)
+
+    pless, dval = _nb_cdf_pmf(safe_counts, res, mu, theta)
+    mid = pless - 0.5 * dval
+    z = scipy.stats.norm.ppf(np.clip(mid, 1e-15, 1 - 1e-15))
+    z[mask] = np.nan
+    return z
+
+
 def get_pv_nb(counts, res, mu, theta, how='two-sided'):
     """
     Compute NB-based p-values for observed counts against expected mean and dispersion.
@@ -149,13 +198,8 @@ def get_pv_nb(counts, res, mu, theta, how='two-sided'):
     if how not in ('two-sided', 'left', 'right'):
         raise ValueError(f"Invalid 'how': {how}. Choose from 'two-sided', 'left', or 'right'.")
 
-    mean = res * mu[np.newaxis, :]
-    size = np.broadcast_to(theta[np.newaxis, :], counts.shape)
-    p = size / (size + mean)
-
-    # Compute CDF, PMF
-    pless = scipy.stats.nbinom.cdf(counts, n=size, p=p)
-    dval = scipy.stats.nbinom.pmf(counts, n=size, p=p)
+    # Compute CDF, PMF (shared with the NB-quantile z so p-value and z stay consistent)
+    pless, dval = _nb_cdf_pmf(counts, res, mu, theta)
 
     if how == 'left':
         return pless
