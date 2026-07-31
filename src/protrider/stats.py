@@ -47,6 +47,21 @@ def fit_residuals(res, dis='gaussian', n_jobs=-1, use_common_df=True):
     return FitParameters(genes=genes, sigmas=sigma, means=mu, degrees_freedoms=df)
 
 def get_pvals(res, fit_params: FitParameters, how='two-sided', dis='gaussian', n_jobs=-1, x_true=None):
+    """Compute p-values and the accompanying **raw** z-scores.
+
+    The returned z is distribution-native and NOT quantile-transformed to N(0,1):
+
+    * ``gaussian`` -- ``(res - mu) / sigma``;
+    * ``t``        -- the same ratio, but t-distributed with ``fit_params.degrees_freedoms``;
+    * ``nb``       -- the OUTRIDER standardized log2 fold-change of counts vs fitted counts.
+
+    Only the gaussian z is standard normal by construction. Callers that need a scale
+    comparable ACROSS features must apply the probability integral transform themselves
+    (``Phi^-1`` of the value's own CDF); cisrider does this for both the t and nb cases.
+
+    Returns:
+        (pvals, z) -- both shaped like ``res`` (samples x features).
+    """
     hows = ('two-sided', 'left', 'right')
     if how not in hows:
         raise ValueError(f'Method should be in <{hows}>')
@@ -62,9 +77,12 @@ def get_pvals(res, fit_params: FitParameters, how='two-sided', dis='gaussian', n
     else:  # 'nb' (OUTRIDER negative-binomial path)
         assert x_true is not None, "x_true (observed counts) must be provided for the NB distribution"
         assert fit_params.dispersions is not None, "dispersions (theta) must be provided for the NB distribution"
-        # z = per-gene NB->standard-normal quantile residual (mid-p PIT), computed from
-        # the SAME nbinom CDF/PMF as the p-value so the two are consistent (theta enters both).
-        z = _nb_quantile_z(counts=x_true, res=res, mu=fit_params.means, theta=fit_params.dispersions)
+        # z = the OUTRIDER standardized log2 fold-change (per-gene mean 0 / sd 1). This is a
+        # RAW effect size, NOT calibrated to the NB null -- tails are not comparable across
+        # genes with different theta. Mapping it onto a common N(0,1) scale is the CALLER's
+        # job (cisrider applies the mid-p NB->normal quantile transform), exactly as the
+        # 't' branch above returns a raw t-scaled z for the caller to transform.
+        z, _, _, _ = calc_effect(counts=x_true, res=res, effect_type='zscores')
         pvals = get_pv_nb(counts=x_true, res=res, mu=fit_params.means, theta=fit_params.dispersions, how=how)
 
     return pvals, z
@@ -152,33 +170,6 @@ def _nb_cdf_pmf(counts, res, mu, theta):
     pless = scipy.stats.nbinom.cdf(counts, n=size, p=p)
     dval = scipy.stats.nbinom.pmf(counts, n=size, p=p)
     return pless, dval
-
-
-def _nb_quantile_z(counts, res, mu, theta):
-    """
-    Per-gene NB -> standard-normal quantile residual (deterministic mid-p PIT).
-
-    For an observed count k with NB(mean=res*mu, dispersion=theta):
-        F   = nbinom.cdf(k)         (== pless in get_pv_nb)
-        f   = nbinom.pmf(k)         (== dval  in get_pv_nb)
-        mid = F - 0.5*f             (mid-p; equals F(k-1) + 0.5*PMF(k))
-        z   = norm.ppf(clip(mid, eps, 1-eps))
-
-    Under the null k ~ NB(mean, theta), `mid` is ~Uniform(0,1) per gene, so z is ~N(0,1)
-    per gene. Signed: low counts -> small F -> negative z (under-expression); high counts
-    -> positive z (over-expression). NaN is propagated where the count is NaN.
-
-    Uses the SAME nbinom CDF/PMF as get_pv_nb so z and the p-value are consistent.
-    """
-    counts = np.asarray(counts, dtype=np.float64)
-    mask = ~np.isfinite(counts)
-    safe_counts = np.where(mask, 0.0, counts)
-
-    pless, dval = _nb_cdf_pmf(safe_counts, res, mu, theta)
-    mid = pless - 0.5 * dval
-    z = scipy.stats.norm.ppf(np.clip(mid, 1e-15, 1 - 1e-15))
-    z[mask] = np.nan
-    return z
 
 
 def get_pv_nb(counts, res, mu, theta, how='two-sided'):

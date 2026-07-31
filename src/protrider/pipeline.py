@@ -110,6 +110,15 @@ class Result:
     pval_dist: str = 'gaussian'  # Distribution used for p-value computation
     outlier_threshold: float = 0.1  # Threshold for determining outliers
     dispersions: pd.DataFrame = None # Dispersions for OUTRIDER or FRASER
+    # What `df_Z` actually holds. df_Z is always a RAW, distribution-native score -- the
+    # engine never quantile-transforms it to N(0,1). Downstream consumers that need a
+    # cross-feature-comparable scale branch on this to pick the right transform:
+    #   'gaussian' -> already standard normal, nothing to do
+    #   't'        -> Phi^-1(F_t(z | fit_params.degrees_freedoms))
+    #   'l2fc'     -> standardized log2 fold-change; needs the mid-p NB PIT from the counts
+    #                 (dataset.raw_filtered), the fitted counts (df_out) and fit_params
+    #                 (.means = per-gene mu scale, .dispersions = theta)
+    z_dist: str = 'gaussian'
     
     def save(self, out_dir: str, format: Literal["wide", "long"] = "wide",
              include_all: bool = False, analysis: str = "protrider") -> Optional[pd.DataFrame]:
@@ -630,7 +639,10 @@ def run(config: ProtriderConfig) -> Tuple[Result, ModelInfo, FitParameters, Grid
     result = _format_results(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence,
                              pvals=pvals, Z=Z, pvals_one_sided=pvals_one_sided, pvals_adj=pvals_adj,
                              pseudocount=config.pseudocount, outlier_threshold=config.outlier_threshold,
-                             base_fn=config.base_fn, pval_dist=config.pval_dist, dispersions=theta)
+                             base_fn=config.base_fn, pval_dist=config.pval_dist, dispersions=theta,
+                             # derived from `dis` (what get_pvals actually used), not from
+                             # config.pval_dist -- the outrider branch forces dis='nb' above
+                             z_dist='l2fc' if dis == 'nb' else dis)
     model_info = ModelInfo(q=np.array(q), learning_rate=np.array(config.lr),
                            n_epochs=np.array(config.n_epochs), test_loss=np.array(final_loss),
                            train_losses=np.array(train_losses))
@@ -710,7 +722,7 @@ def _inference(dataset: Union[ProtriderDataset, ProtriderSubset], model: Protrid
     return df_out, theta, df_presence, loss, reconstruction_loss, bce_loss
 
 
-def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist, dispersions):
+def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pvals_adj, dataset, pseudocount, outlier_threshold, base_fn, pval_dist, dispersions, z_dist='gaussian'):
     # Store as df
     df_pvals_adj = pd.DataFrame(pvals_adj)
     df_pvals_adj.columns = dataset.data.columns
@@ -753,4 +765,5 @@ def _format_results(df_out, df_res, df_presence, pvals, Z, pvals_one_sided, pval
 
     return Result(dataset=dataset, df_out=df_out, df_res=df_res, df_presence=df_presence, df_pvals=df_pvals, df_Z=df_Z,
                   df_pvals_one_sided=df_pvals_one_sided, df_pvals_adj=df_pvals_adj, log2fc=log2fc, fc=fc, n_out_median=n_out_median, n_out_max=n_out_max,
-                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold, dispersions=dispersions)
+                  n_out_total=n_out_total, pval_dist=pval_dist, outlier_threshold=outlier_threshold, dispersions=dispersions,
+                  z_dist=z_dist)
